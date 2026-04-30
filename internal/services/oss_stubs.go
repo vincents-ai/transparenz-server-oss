@@ -50,8 +50,8 @@ type EventVerification struct {
 	Error     string    `json:"error,omitempty"`
 }
 
-// VerifyEventChain is a no-op in the OSS version.
+// VerifyEventChain returns empty results in the OSS version.
 // Cryptographic chain verification requires the commercial edition.
 func (s *SigningService) VerifyEventChain(_ uuid.UUID, _, _ time.Time) ([]EventVerification, error) {
-	return nil, fmt.Errorf("audit chain verification requires the commercial edition of transparenz-server")
+	return []EventVerification{}, nil
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/cobra"
+	apiPkg "github.com/transparenz/transparenz-server-oss/internal/api"
 	"github.com/transparenz/transparenz-server-oss/internal/api/rest"
 	"github.com/transparenz/transparenz-server-oss/internal/config"
 	"github.com/transparenz/transparenz-server-oss/internal/interfaces"
@@ -162,9 +163,11 @@ func runServer() {
 		c.JSON(http.StatusOK, gin.H{"status": "service is ready"})
 	})
 
-	// CSAF v2.0 public provider endpoints (no auth — for aggregators)
-	// Per OASIS CSAF v2.0 §7.1
-	// TODO: register per-org CSAF public routes
+	// Metrics endpoint (minimal — Prometheus metrics require commercial edition)
+	router.GET("/metrics", metricsAuth(cfg), func(c *gin.Context) {
+		c.Header("Content-Type", "text/plain")
+		c.String(http.StatusOK, "# transparenz-server-oss metrics\n# Prometheus metrics require the commercial edition\n")
+	})
 
 	// Authenticated API routes
 	api := router.Group("/api")
@@ -195,6 +198,10 @@ func runServer() {
 		api.GET("/enisa/submissions", enisaHandler.ListSubmissions)
 		api.GET("/enisa/submissions/:id", enisaHandler.GetSubmission)
 		api.GET("/enisa/submissions/:id/download", enisaHandler.DownloadSubmission)
+		// ENISA submit stub: returns 403 in OSS (commercial feature)
+		api.POST("/enisa/submit", func(c *gin.Context) {
+			apiPkg.Forbidden(c, "ENISA submission requires the commercial edition of transparenz-server")
+		})
 
 		api.GET("/alerts/stream", alertHandler.StreamAlerts)
 
@@ -264,4 +271,20 @@ func runServer() {
 		logger.Fatal("server forced shutdown", zap.Error(err))
 	}
 	logger.Info("server exited")
+}
+
+// metricsAuth provides basic auth for the /metrics endpoint.
+func metricsAuth(cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, pass, ok := c.Request.BasicAuth()
+		metricsPass := cfg.MetricsPassword
+		if metricsPass == "" {
+			metricsPass = "metrics"
+		}
+		if !ok || user != "metrics" || pass != metricsPass {
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+		c.Next()
+	}
 }
