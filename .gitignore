@@ -1,0 +1,48 @@
+# Binaries
+/bin/
+/server
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output
+*.out
+coverage.out
+
+# Dependency directories
+/vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+*.pem
+
+# Evidence
+evidence/
+
+# Docs media (generated)
+docs/media/
+
+# BDD
+bdd/features/
+
+# Engram
+.engram/
+
+# Nix
+result

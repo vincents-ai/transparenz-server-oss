@@ -1,0 +1,44 @@
+version: "2"
+run:
+  timeout: 5m
+linters:
+  enable:
+    - gosec
+    - govet
+    - errcheck
+    - staticcheck
+    - revive
+    - unused
+    - gocritic
+  settings:
+    errcheck:
+      exclude-functions:
+        - (*os.File).Close
+        - (*database/sql.DB).Close
+        - (*database/sql.Rows).Close
+        - (*database/sql.Tx).Rollback
+        - (net/http.Response).Body.Close
+        - go.uber.org/zap.(*Logger).Sync
+        - os.Remove
+    revive:
+      rules:
+        - name: unused-parameter
+          disabled: true
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
+        - name: var-naming
+          disabled: true
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - errcheck
+      - path: internal/testutil/
+        linters:
+          - gosec
+formatters:
+  enable:
+    - gofmt

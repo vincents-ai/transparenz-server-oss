@@ -1,0 +1,56 @@
+version: "0.5"
+
+processes:
+  postgres:
+    command: podman run --rm --name transparenz-dev-db -e POSTGRES_USER=user -e POSTGRES_PASSWORD=pass -e POSTGRES_DB=transparenz -p 5434:5432 -v transparenz-dev-pg:/var/lib/postgresql/data docker.io/library/postgres:16
+    readiness_probe:
+      exec:
+        command: podman exec transparenz-dev-db pg_isready -U user -d transparenz
+      initial_delay_seconds: 2
+      period_seconds: 2
+      timeout_seconds: 3
+      max_retries: 30
+    shutdown:
+      command: podman stop transparenz-dev-db
+      timeout_seconds: 10
+    availability:
+      exit_on_end: false
+
+  migrate:
+    command: go run ./cmd/migrate/... up
+    working_dir: /home/shift/code/transparenz-server
+    depends_on:
+      postgres:
+        condition: process_healthy
+    availability:
+      restart: no
+
+  server:
+    command: go run ./cmd/server/main.go
+    depends_on:
+      migrate:
+        condition: process_completed_successfully
+    readiness_probe:
+      http_get:
+        host: localhost
+        port: 8080
+        path: /health
+      initial_delay_seconds: 5
+      period_seconds: 3
+      timeout_seconds: 5
+      max_retries: 30
+    availability:
+      exit_on_end: false
+
+  seed:
+    command: go run ./cmd/seed/main.go
+    depends_on:
+      server:
+        condition: process_healthy
+    availability:
+      exit_on_end: true
+      restart: exit_on_failure
+
+settings:
+  telemetry:
+    disabled: true
