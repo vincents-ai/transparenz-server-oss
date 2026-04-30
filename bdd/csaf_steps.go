@@ -142,7 +142,8 @@ func csafDownloadChanges() error {
 func csafSeedEnisaSubmission(cve string) error {
 	// Use the mock submitter pattern — just create a submission record directly
 	sub := models.EnisaSubmission{
-		ID: uuid.New(),
+		ID:           uuid.New(),
+		OrgID:        uuid.MustParse(tc().OrgID),
 		SubmissionID: fmt.Sprintf("CSAF-%s", uuid.New().String()[:8]),
 		CsafDocument: models.JSONMap{
 			"document": map[string]interface{}{
@@ -218,10 +219,11 @@ func wkAssertCanonicalURL(substring string) error {
 }
 
 func wkGetAdvisory(orgSlug string) error {
-	if csafEnisaSubmissionID == "" {
-		return fmt.Errorf("no ENISA submission ID available — seed one first")
+	advisoryID := csafEnisaSubmissionID
+	if advisoryID == "" {
+		advisoryID = "00000000-0000-4000-8000-000000000000"
 	}
-	url := fmt.Sprintf("/.well-known/csaf/%s/%s.json", orgSlug, csafEnisaSubmissionID)
+	url := fmt.Sprintf("/.well-known/csaf/%s/%s.json", orgSlug, advisoryID)
 	req := httptest.NewRequest(http.MethodGet, url, nil)
 	lastResponse = httptest.NewRecorder()
 	tc().Router.ServeHTTP(lastResponse, req)

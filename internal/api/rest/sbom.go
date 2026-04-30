@@ -86,6 +86,11 @@ func (h *SbomHandler) Upload(c *gin.Context) {
 	}
 
 	ext := strings.ToLower(filepath.Ext(header.Filename))
+	// Check for .cdx.json compound extension first
+	fullExt := strings.ToLower(header.Filename)
+	if strings.HasSuffix(fullExt, ".cdx.json") || strings.HasSuffix(fullExt, ".cdx.xml") {
+		ext = ".cdx"
+	}
 	format, ok := extensionToFormat(ext, header.Header.Get("Content-Type"))
 	if !ok {
 		api.BadRequest(c, "unsupported file format: must be SPDX or CycloneDX (JSON or XML)")

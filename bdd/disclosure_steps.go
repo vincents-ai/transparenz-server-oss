@@ -34,6 +34,8 @@ func RegisterDisclosureSteps(s *godog.ScenarioContext) {
 	s.Step(`^I create a disclosure with missing CVE field$`, disclosureCreateMissingCVE)
 	s.Step(`^I get disclosure with ID "([^"]*)"$`, disclosureGetArbitraryByID)
 	s.Step(`^I update disclosure "([^"]*)" status to "([^"]*)"$`, disclosureUpdateArbitraryStatus)
+	s.Step(`^I update the last disclosure status to "([^"]*)" with notes "([^"]*)"$`, disclosureUpdateStatusWithNotes)
+	s.Step(`^I update the last disclosure status to "([^"]*)" with fix version "([^"]*)"$`, disclosureUpdateStatusWithFixVersion)
 }
 
 func disclosureCreate(cve, title string) error {
@@ -209,6 +211,28 @@ func disclosureGetArbitraryByID(id string) error {
 func disclosureUpdateArbitraryStatus(id, status string) error {
 	body := fmt.Sprintf(`{"status":"%s"}`, status)
 	req := httptest.NewRequest(http.MethodPut, "/api/disclosures/"+id+"/status", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+tc().Tokens.AdminToken)
+	req.Header.Set("Content-Type", "application/json")
+	lastResponse = httptest.NewRecorder()
+	tc().Router.ServeHTTP(lastResponse, req)
+	return nil
+}
+
+// disclosureUpdateStatusWithNotes updates disclosure status with internal notes.
+func disclosureUpdateStatusWithNotes(status, notes string) error {
+	body := fmt.Sprintf(`{"status":"%s","internal_notes":"%s"}`, status, notes)
+	req := httptest.NewRequest(http.MethodPut, "/api/disclosures/"+lastDisclosureID+"/status", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+tc().Tokens.AdminToken)
+	req.Header.Set("Content-Type", "application/json")
+	lastResponse = httptest.NewRecorder()
+	tc().Router.ServeHTTP(lastResponse, req)
+	return nil
+}
+
+// disclosureUpdateStatusWithFixVersion updates disclosure status with fix version.
+func disclosureUpdateStatusWithFixVersion(status, fixVersion string) error {
+	body := fmt.Sprintf(`{"status":"%s","fix_version":"%s"}`, status, fixVersion)
+	req := httptest.NewRequest(http.MethodPut, "/api/disclosures/"+lastDisclosureID+"/status", strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+tc().Tokens.AdminToken)
 	req.Header.Set("Content-Type", "application/json")
 	lastResponse = httptest.NewRecorder()

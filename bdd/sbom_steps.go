@@ -29,6 +29,7 @@ func RegisterSbomSteps(s *godog.ScenarioContext) {
 	s.Step(`^the SBOM should be listed for the organization$`, sbomAssertListed)
 	s.Step(`^I list SBOMs$`, sbomListSboms)
 	s.Step(`^I get SBOM with ID from the last upload$`, sbomGetByID)
+	s.Step(`^I get SBOM with ID "([^"]*)"$`, sbomGetByExplicitID)
 	s.Step(`^I download the last uploaded SBOM$`, sbomDownload)
 	s.Step(`^the response should contain the SBOM document$`, sbomAssertDocument)
 	s.Step(`^I delete the last uploaded SBOM$`, sbomDelete)
@@ -216,5 +217,14 @@ func sbomSendViaWebhook(webhookName string) error {
 	if lastResponse.Code == http.StatusCreated {
 		sbomUploadCount++
 	}
+	return nil
+}
+
+// sbomGetByExplicitID fetches an SBOM by an explicit UUID string.
+func sbomGetByExplicitID(id string) error {
+	req := httptest.NewRequest(http.MethodGet, "/api/sboms/"+id, nil)
+	req.Header.Set("Authorization", "Bearer "+tc().Tokens.AdminToken)
+	lastResponse = httptest.NewRecorder()
+	tc().Router.ServeHTTP(lastResponse, req)
 	return nil
 }

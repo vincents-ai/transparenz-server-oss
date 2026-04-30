@@ -30,7 +30,7 @@ func NewOrganizationHandler(orgRepo *repository.OrganizationRepository, logger *
 
 // UpdateSupportPeriodRequest holds the number of months for support period updates.
 type UpdateSupportPeriodRequest struct {
-	Months int `json:"months" binding:"required"`
+	Months int `json:"months"`
 }
 
 func (h *OrganizationHandler) UpdateSupportPeriod(c *gin.Context) {

@@ -48,10 +48,12 @@ func ServerRoot() string {
 	if v := os.Getenv(envServerRoot); v != "" {
 		return v
 	}
-	// Default: sibling directory or current working directory
-	if _, err := os.Stat("../cmd/server/main.go"); err == nil {
-		wd, _ := os.Getwd()
-		return filepath.Dir(wd)
+	// Default: walk up from test directory to find go.mod
+	wd, _ := os.Getwd()
+	for dir := wd; dir != "/"; dir = filepath.Dir(dir) {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
 	}
 	return "."
 }
@@ -650,7 +652,15 @@ func startPostgres(ctx context.Context, t *testing.T) (testcontainers.Container,
 func runMigrations(t *testing.T, pgURL string) {
 	t.Helper()
 	serverRoot := ServerRoot()
-	cmd := exec.Command("go", "run", filepath.Join(serverRoot, "cmd", "migrate"), filepath.Join(serverRoot, "migrations"))
+	// Build the migrate helper first, then run it.
+	absMigrations, _ := filepath.Abs(filepath.Join(serverRoot, "migrations"))
+	binPath := filepath.Join(t.TempDir(), "migrate-helper")
+	buildCmd := exec.Command("go", "build", "-o", binPath, "github.com/transparenz/transparenz-server-oss/cmd/migrate")
+	buildCmd.Dir = serverRoot
+	if output, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to build migrate helper: %v\n%s", err, string(output))
+	}
+	cmd := exec.Command(binPath, absMigrations)
 	cmd.Env = append(os.Environ(), "DATABASE_URL="+pgURL)
 	cmd.Dir = serverRoot
 

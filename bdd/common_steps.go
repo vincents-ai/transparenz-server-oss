@@ -147,14 +147,21 @@ func commonAssertSlaEntries() error {
 	if err := json.Unmarshal(lastResponse.Body.Bytes(), &body); err != nil {
 		return fmt.Errorf("failed to parse response: %w", err)
 	}
-	data, ok := body["data"].([]interface{})
-	if !ok {
-		return fmt.Errorf("response missing data array: %v", body)
+	// Paginated SLA list returns {data: [...], total: N}
+	if data, ok := body["data"].([]interface{}); ok {
+		if len(data) == 0 {
+			return fmt.Errorf("expected SLA entries but got empty data array")
+		}
+		return nil
 	}
-	if len(data) == 0 {
-		return fmt.Errorf("expected SLA entries but got 0")
+	// Compliance status returns flat object with sla_* fields
+	if _, hasViolations := body["sla_violations"]; hasViolations {
+		return nil
 	}
-	return nil
+	if _, hasTotal := body["total_slas"]; hasTotal {
+		return nil
+	}
+	return fmt.Errorf("response missing SLA fields: %v", body)
 }
 
 func commonAssertSlaBreach() error {

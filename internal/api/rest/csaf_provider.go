@@ -136,7 +136,7 @@ func (h *CSAFProviderHandler) WellKnownAdvisory(c *gin.Context) {
 	if !ok {
 		return
 	}
-	advisoryID := strings.TrimSuffix(c.Param("advisory_id"), ".json")
+	advisoryID := strings.TrimSuffix(c.Param("advisory_id.json"), ".json")
 	h.serveAdvisory(c, orgID, advisoryID)
 }
 

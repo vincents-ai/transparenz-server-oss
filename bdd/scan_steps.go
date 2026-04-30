@@ -23,6 +23,7 @@ func RegisterScanSteps(s *godog.ScenarioContext) {
 	s.Step(`^I list vulnerabilities filtered by severity "([^"]*)"$`, scanListVulnerabilitiesBySeverity)
 	s.Step(`^I get vulnerability with CVE "([^"]*)"$`, scanGetVulnerability)
 	s.Step(`^the vulnerability should have severity "([^"]*)"$`, scanVulnHasSeverity)
+	s.Step(`^the response should contain (d+) vulnerabilities$`, scanAssertVulnCount)
 }
 
 func scanSeedSBOM(sbomID string) error {
@@ -115,6 +116,25 @@ func scanVulnHasSeverity(expectedSeverity string) error {
 	}
 	if !strings.EqualFold(resp.Severity, expectedSeverity) {
 		return fmt.Errorf("expected vulnerability severity %q, got %q", expectedSeverity, resp.Severity)
+	}
+	return nil
+}
+
+// scanAssertVulnCount checks the number of vulnerabilities in the response.
+func scanAssertVulnCount(count int) error {
+	if lastResponse == nil {
+		return fmt.Errorf("no response recorded")
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(lastResponse.Body.Bytes(), &body); err != nil {
+		return fmt.Errorf("failed to parse response: %w", err)
+	}
+	data, ok := body["data"].([]interface{})
+	if !ok {
+		return fmt.Errorf("response missing data array: %v", body)
+	}
+	if len(data) != count {
+		return fmt.Errorf("expected %d vulnerabilities, got %d", count, len(data))
 	}
 	return nil
 }
