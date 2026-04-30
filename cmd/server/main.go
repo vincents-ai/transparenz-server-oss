@@ -32,15 +32,10 @@ func main() {
 	rootCmd := &cobra.Command{
 		Use:   "transparenz-server-oss",
 		Short: "Open-source EU CRA/NIS2 compliance reporting server",
-	}
-
-	rootCmd.AddCommand(&cobra.Command{
-		Use:   "server",
-		Short: "Start the compliance server",
 		Run: func(cmd *cobra.Command, args []string) {
 			runServer()
 		},
-	})
+	}
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -145,23 +140,26 @@ func runServer() {
 		MaxAge:           12 * time.Hour,
 	}))
 
-	// Health endpoints
+	// Health endpoint (RFC 7807 ProblemDetail format)
 	router.GET("/health", func(c *gin.Context) {
 		sqlDB, err := db.DB()
 		if err != nil || sqlDB.Ping() != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "unhealthy"})
+			c.Header("Content-Type", "application/problem+json")
+			c.JSON(http.StatusServiceUnavailable, gin.H{"type": "about:blank", "title": "Service Unavailable", "status": 503, "detail": "database unreachable"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"status": "healthy"})
+		c.Header("Content-Type", "application/problem+json")
+		c.JSON(http.StatusOK, gin.H{"type": "about:blank", "title": "OK", "status": 200, "detail": "service is healthy"})
 	})
 
-	router.GET("/readyz", func(c *gin.Context) {
+		router.GET("/readyz", func(c *gin.Context) {
 		sqlDB, err := db.DB()
 		if err != nil || sqlDB.Ping() != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not ready"})
+			c.Header("Content-Type", "application/problem+json")
+			c.JSON(http.StatusServiceUnavailable, gin.H{"type": "about:blank", "title": "Not Ready", "status": 503, "detail": "database disconnected"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"status": "ready"})
+		c.JSON(http.StatusOK, gin.H{"status": "service is ready"})
 	})
 
 	// CSAF v2.0 public provider endpoints (no auth — for aggregators)
@@ -239,7 +237,7 @@ func runServer() {
 	}
 
 	// Start server
-	addr := fmt.Sprintf(":%d", cfg.Port)
+	addr := fmt.Sprintf(":%s", cfg.Port)
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           router,
