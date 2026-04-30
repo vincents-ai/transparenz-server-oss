@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/transparenz/transparenz-server-oss/internal/models"
+	"github.com/transparenz/transparenz-server-oss/pkg/models"
 )
 
 type MockSubmissionRecord struct {

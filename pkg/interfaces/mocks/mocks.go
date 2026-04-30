@@ -10,7 +10,7 @@ import (
 
 	gomock "github.com/golang/mock/gomock"
 	uuid "github.com/google/uuid"
-	models "github.com/transparenz/transparenz-server-oss/internal/models"
+	models "github.com/transparenz/transparenz-server-oss/pkg/models"
 )
 
 // MockScanRepository is a mock of ScanRepository interface.

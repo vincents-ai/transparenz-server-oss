@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/transparenz/transparenz-server-oss/internal/config"
-	"github.com/transparenz/transparenz-server-oss/internal/models"
+	"github.com/transparenz/transparenz-server-oss/pkg/models"
 	"github.com/transparenz/transparenz-server-oss/internal/services"
 	"go.uber.org/zap"
 	"gorm.io/gorm"

@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/transparenz/transparenz-server-oss/internal/models"
+	"github.com/transparenz/transparenz-server-oss/pkg/models"
 )
 
 // VexPublicationRepository provides data access for VEX publication records.

@@ -14,10 +14,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/transparenz/transparenz-server-oss/internal/interfaces"
+	"github.com/transparenz/transparenz-server-oss/pkg/interfaces"
 	"github.com/transparenz/transparenz-server-oss/internal/middleware"
-	"github.com/transparenz/transparenz-server-oss/internal/models"
-	"github.com/transparenz/transparenz-server-oss/internal/repository"
+	"github.com/transparenz/transparenz-server-oss/pkg/models"
+	"github.com/transparenz/transparenz-server-oss/pkg/repository"
 	"github.com/transparenz/transparenz-server-oss/internal/testutil"
 	"go.uber.org/zap"
 )

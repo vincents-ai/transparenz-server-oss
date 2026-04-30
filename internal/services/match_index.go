@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/transparenz/transparenz-server-oss/internal/models"
+	"github.com/transparenz/transparenz-server-oss/pkg/models"
 )
 
 type feedMatchEntry struct {

@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"github.com/transparenz/transparenz-server-oss/internal/models"
+	"github.com/transparenz/transparenz-server-oss/pkg/models"
 )
 
 func TestDB(t *testing.T) *gorm.DB {

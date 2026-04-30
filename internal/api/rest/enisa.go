@@ -16,9 +16,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/transparenz/transparenz-server-oss/internal/api"
-	"github.com/transparenz/transparenz-server-oss/internal/interfaces"
+	"github.com/transparenz/transparenz-server-oss/pkg/interfaces"
 	"github.com/transparenz/transparenz-server-oss/internal/middleware"
-	"github.com/transparenz/transparenz-server-oss/internal/repository"
+	"github.com/transparenz/transparenz-server-oss/pkg/repository"
 	"go.uber.org/zap"
 )
 

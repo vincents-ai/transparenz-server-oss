@@ -12,7 +12,7 @@ import (
 
 	"github.com/cucumber/godog"
 	"github.com/google/uuid"
-	"github.com/transparenz/transparenz-server-oss/internal/models"
+	"github.com/transparenz/transparenz-server-oss/pkg/models"
 	"github.com/transparenz/transparenz-server-oss/internal/services"
 )
 

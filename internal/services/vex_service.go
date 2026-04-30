@@ -15,8 +15,8 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	"github.com/transparenz/transparenz-server-oss/internal/models"
-	"github.com/transparenz/transparenz-server-oss/internal/repository"
+	"github.com/transparenz/transparenz-server-oss/pkg/models"
+	"github.com/transparenz/transparenz-server-oss/pkg/repository"
 )
 
 // VEXService manages VEX statement lifecycle including drafting, approval, and publication.
