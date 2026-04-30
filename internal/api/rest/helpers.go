@@ -9,7 +9,7 @@ import (
 	"context"
 
 	"github.com/gin-gonic/gin"
-	"github.com/transparenz/transparenz-server-oss/internal/middleware"
+	"github.com/transparenz/transparenz-server-oss/pkg/middleware"
 )
 
 func orgContext(c *gin.Context) (context.Context, error) {

@@ -22,10 +22,10 @@ import (
 	"github.com/transparenz/transparenz-server-oss/internal/api/rest"
 	"github.com/transparenz/transparenz-server-oss/internal/config"
 	"github.com/transparenz/transparenz-server-oss/pkg/interfaces"
-	"github.com/transparenz/transparenz-server-oss/internal/jobs"
-	"github.com/transparenz/transparenz-server-oss/internal/middleware"
+	"github.com/transparenz/transparenz-server-oss/pkg/jobs"
+	"github.com/transparenz/transparenz-server-oss/pkg/middleware"
 	"github.com/transparenz/transparenz-server-oss/pkg/repository"
-	"github.com/transparenz/transparenz-server-oss/internal/services"
+	"github.com/transparenz/transparenz-server-oss/pkg/services"
 	"go.uber.org/zap"
 )
 
@@ -82,9 +82,9 @@ func runServer() {
 
 	// Services
 	alertHub := services.NewAlertHub(logger)
-	signingService := services.NewSigningService()
-	enisaService := services.NewENISAService()
+	signingService := services.NewSigningService(db, logger, "./keys")
 	csafGenerator := services.NewCSAFGeneratorWithOrg(vulnRepo, vulnFeedRepo, slaRepo, orgRepo)
+	enisaService := services.NewENISAService(orgRepo, enisaSubRepo, csafGenerator, nil, logger, 30*time.Second, 5*time.Second, 3)
 
 	scanWorker := services.NewScanWorker(
 		scanRepo, vulnRepo, vulnFeedRepo, sbomRepo,

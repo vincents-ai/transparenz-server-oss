@@ -72,5 +72,37 @@ type ENISASubmitter interface {
 	Submit(ctx context.Context, orgID uuid.UUID, cve string, metadata models.JSONMap) (*models.EnisaSubmission, error)
 }
 
-// OSS-only: PDFGenerator, SigningService, GreenboneService, TelemetryRepository
-// are available in the proprietary transparenz-server repo.
+// PDFGenerator defines the interface for PDF generation operations.
+// It provides methods to generate PDF reports from structured data.
+type PDFGenerator interface {
+	// GeneratePDF creates a PDF document from the given report data.
+	GeneratePDF(data models.PDFReportData) ([]byte, error)
+}
+
+// SigningService defines the interface for signing key management.
+type SigningService interface {
+	// RevokeKey revokes a signing key for an organization.
+	RevokeKey(ctx context.Context, orgID string, keyID string) error
+}
+
+// GreenboneService defines the interface for Greenbone integration.
+type GreenboneService interface {
+	// ProcessReport handles an incoming Greenbone webhook report.
+	ProcessReport(ctx context.Context, orgID uuid.UUID, webhookActions models.GreenboneWebhookActions, body []byte) error
+}
+
+// TelemetryRepository defines the interface for telemetry data operations.
+// It provides methods to store and retrieve organization telemetry configurations.
+type TelemetryRepository interface {
+	// Create stores a new telemetry configuration for an organization.
+	Create(ctx context.Context, orgID uuid.UUID, telemetry *models.OrgTelemetryConfig) error
+
+	// GetByOrgID retrieves a telemetry configuration by organization ID.
+	GetByOrgID(ctx context.Context, orgID uuid.UUID) (*models.OrgTelemetryConfig, error)
+
+	// GetByMetricsTokenPrefix retrieves telemetry configs by metrics token prefix.
+	GetByMetricsTokenPrefix(ctx context.Context, prefix string) ([]*models.OrgTelemetryConfig, error)
+
+	// Update modifies an existing telemetry configuration.
+	Update(ctx context.Context, config *models.OrgTelemetryConfig) error
+}

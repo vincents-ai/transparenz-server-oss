@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/transparenz/transparenz-server-oss/internal/config"
 	"github.com/transparenz/transparenz-server-oss/pkg/models"
-	"github.com/transparenz/transparenz-server-oss/internal/services"
+	"github.com/transparenz/transparenz-server-oss/pkg/services"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )

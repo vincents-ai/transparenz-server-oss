@@ -11,8 +11,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-	"github.com/transparenz/transparenz-server-oss/internal/middleware"
-	"github.com/transparenz/transparenz-server-oss/internal/services"
+	"github.com/transparenz/transparenz-server-oss/pkg/middleware"
+	"github.com/transparenz/transparenz-server-oss/pkg/services"
 	"go.uber.org/zap"
 )
 

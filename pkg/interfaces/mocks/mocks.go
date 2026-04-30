@@ -236,3 +236,198 @@ func (mr *MockENISASubmitterMockRecorder) Submit(ctx, data interface{}) *gomock.
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Submit", reflect.TypeOf((*MockENISASubmitter)(nil).Submit), ctx, data)
 }
+
+// MockPDFGenerator is a mock of PDFGenerator interface.
+type MockPDFGenerator struct {
+	ctrl     *gomock.Controller
+	recorder *MockPDFGeneratorMockRecorder
+}
+
+// MockPDFGeneratorMockRecorder is the mock recorder for MockPDFGenerator.
+type MockPDFGeneratorMockRecorder struct {
+	mock *MockPDFGenerator
+}
+
+// NewMockPDFGenerator creates a new mock instance.
+func NewMockPDFGenerator(ctrl *gomock.Controller) *MockPDFGenerator {
+	mock := &MockPDFGenerator{ctrl: ctrl}
+	mock.recorder = &MockPDFGeneratorMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockPDFGenerator) EXPECT() *MockPDFGeneratorMockRecorder {
+	return m.recorder
+}
+
+// Generate mocks base method.
+func (m *MockPDFGenerator) Generate(ctx context.Context, data interface{}) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Generate", ctx, data)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Generate indicates an expected call of Generate.
+func (mr *MockPDFGeneratorMockRecorder) Generate(ctx, data interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Generate", reflect.TypeOf((*MockPDFGenerator)(nil).Generate), ctx, data)
+}
+
+// MockSigningService is a mock of SigningService interface.
+type MockSigningService struct {
+	ctrl     *gomock.Controller
+	recorder *MockSigningServiceMockRecorder
+}
+
+// MockSigningServiceMockRecorder is the mock recorder for MockSigningService.
+type MockSigningServiceMockRecorder struct {
+	mock *MockSigningService
+}
+
+// NewMockSigningService creates a new mock instance.
+func NewMockSigningService(ctrl *gomock.Controller) *MockSigningService {
+	mock := &MockSigningService{ctrl: ctrl}
+	mock.recorder = &MockSigningServiceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockSigningService) EXPECT() *MockSigningServiceMockRecorder {
+	return m.recorder
+}
+
+// Sign mocks base method.
+func (m *MockSigningService) Sign(ctx context.Context, data []byte) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Sign", ctx, data)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Sign indicates an expected call of Sign.
+func (mr *MockSigningServiceMockRecorder) Sign(ctx, data interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Sign", reflect.TypeOf((*MockSigningService)(nil).Sign), ctx, data)
+}
+
+// Verify mocks base method.
+func (m *MockSigningService) Verify(ctx context.Context, data, signature []byte) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Verify", ctx, data, signature)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Verify indicates an expected call of Verify.
+func (mr *MockSigningServiceMockRecorder) Verify(ctx, data, signature interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Verify", reflect.TypeOf((*MockSigningService)(nil).Verify), ctx, data, signature)
+}
+
+// MockGreenboneService is a mock of GreenboneService interface.
+type MockGreenboneService struct {
+	ctrl     *gomock.Controller
+	recorder *MockGreenboneServiceMockRecorder
+}
+
+// MockGreenboneServiceMockRecorder is the mock recorder for MockGreenboneService.
+type MockGreenboneServiceMockRecorder struct {
+	mock *MockGreenboneService
+}
+
+// NewMockGreenboneService creates a new mock instance.
+func NewMockGreenboneService(ctrl *gomock.Controller) *MockGreenboneService {
+	mock := &MockGreenboneService{ctrl: ctrl}
+	mock.recorder = &MockGreenboneServiceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockGreenboneService) EXPECT() *MockGreenboneServiceMockRecorder {
+	return m.recorder
+}
+
+// GetVulnerabilities mocks base method.
+func (m *MockGreenboneService) GetVulnerabilities(ctx context.Context, cpe string) ([]models.GreenboneFinding, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetVulnerabilities", ctx, cpe)
+	ret0, _ := ret[0].([]models.GreenboneFinding)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetVulnerabilities indicates an expected call of GetVulnerabilities.
+func (mr *MockGreenboneServiceMockRecorder) GetVulnerabilities(ctx, cpe interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetVulnerabilities", reflect.TypeOf((*MockGreenboneService)(nil).GetVulnerabilities), ctx, cpe)
+}
+
+// MockTelemetryRepository is a mock of TelemetryRepository interface.
+type MockTelemetryRepository struct {
+	ctrl     *gomock.Controller
+	recorder *MockTelemetryRepositoryMockRecorder
+}
+
+// MockTelemetryRepositoryMockRecorder is the mock recorder for MockTelemetryRepository.
+type MockTelemetryRepositoryMockRecorder struct {
+	mock *MockTelemetryRepository
+}
+
+// NewMockTelemetryRepository creates a new mock instance.
+func NewMockTelemetryRepository(ctrl *gomock.Controller) *MockTelemetryRepository {
+	mock := &MockTelemetryRepository{ctrl: ctrl}
+	mock.recorder = &MockTelemetryRepositoryMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockTelemetryRepository) EXPECT() *MockTelemetryRepositoryMockRecorder {
+	return m.recorder
+}
+
+// Create mocks base method.
+func (m *MockTelemetryRepository) Create(ctx context.Context, telemetry *models.OrgTelemetryConfig) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Create", ctx, telemetry)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Create indicates an expected call of Create.
+func (mr *MockTelemetryRepositoryMockRecorder) Create(ctx, telemetry interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockTelemetryRepository)(nil).Create), ctx, telemetry)
+}
+
+// GetByID mocks base method.
+func (m *MockTelemetryRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.OrgTelemetryConfig, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetByID", ctx, id)
+	ret0, _ := ret[0].(*models.OrgTelemetryConfig)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetByID indicates an expected call of GetByID.
+func (mr *MockTelemetryRepositoryMockRecorder) GetByID(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByID", reflect.TypeOf((*MockTelemetryRepository)(nil).GetByID), ctx, id)
+}
+
+// List mocks base method.
+func (m *MockTelemetryRepository) List(ctx context.Context, limit, offset int) ([]models.OrgTelemetryConfig, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "List", ctx, limit, offset)
+	ret0, _ := ret[0].([]models.OrgTelemetryConfig)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// List indicates an expected call of List.
+func (mr *MockTelemetryRepositoryMockRecorder) List(ctx, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockTelemetryRepository)(nil).List), ctx, limit, offset)
+}

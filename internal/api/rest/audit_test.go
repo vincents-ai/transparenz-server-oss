@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 
-	"github.com/transparenz/transparenz-server-oss/internal/middleware"
+	"github.com/transparenz/transparenz-server-oss/pkg/middleware"
 	"github.com/transparenz/transparenz-server-oss/pkg/models"
-	"github.com/transparenz/transparenz-server-oss/internal/services"
+	"github.com/transparenz/transparenz-server-oss/pkg/services"
 	"github.com/transparenz/transparenz-server-oss/internal/testutil"
 )
 

@@ -11,8 +11,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/transparenz/transparenz-server-oss/internal/api"
-	"github.com/transparenz/transparenz-server-oss/internal/middleware"
-	"github.com/transparenz/transparenz-server-oss/internal/services"
+	"github.com/transparenz/transparenz-server-oss/pkg/middleware"
+	"github.com/transparenz/transparenz-server-oss/pkg/services"
 )
 
 // AuditHandler handles audit chain verification requests.
@@ -70,7 +70,7 @@ func (h *AuditHandler) VerifyAuditChain(c *gin.Context) {
 
 	allVerified := true
 	for _, r := range results {
-		if !r.Valid {
+		if !r.Verified {
 			allVerified = false
 			break
 		}

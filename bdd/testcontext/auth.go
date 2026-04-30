@@ -7,7 +7,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/transparenz/transparenz-server-oss/internal/middleware"
+	"github.com/transparenz/transparenz-server-oss/pkg/middleware"
 )
 
 const testJWTSecret = "bdd-test-secret-key-must-be-at-least-32-bytes!!"

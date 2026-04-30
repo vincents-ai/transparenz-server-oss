@@ -12,10 +12,10 @@ import (
 	"github.com/transparenz/transparenz-server-oss/internal/api/rest"
 	"github.com/transparenz/transparenz-server-oss/internal/config"
 	"github.com/transparenz/transparenz-server-oss/pkg/interfaces"
-	"github.com/transparenz/transparenz-server-oss/internal/jobs"
-	"github.com/transparenz/transparenz-server-oss/internal/middleware"
+	"github.com/transparenz/transparenz-server-oss/pkg/jobs"
+	"github.com/transparenz/transparenz-server-oss/pkg/middleware"
 	"github.com/transparenz/transparenz-server-oss/pkg/repository"
-	"github.com/transparenz/transparenz-server-oss/internal/services"
+	"github.com/transparenz/transparenz-server-oss/pkg/services"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
@@ -43,9 +43,9 @@ func BuildApp(ctx context.Context, db *gorm.DB, logger *zap.Logger) (*gin.Engine
 
 	// Services (OSS only — no proprietary services)
 	alertHub := services.NewAlertHub(logger)
-	signingService := services.NewSigningService()
-	enisaService := services.NewENISAService()
+	signingService := services.NewSigningService(db, logger, "")
 	csafGenerator := services.NewCSAFGeneratorWithOrg(vulnRepo, feedRepo, slaRepo, orgRepo)
+	enisaService := services.NewENISAService(orgRepo, subRepo, csafGenerator, nil, nil, 0, 0, 0)
 
 	vulnzMatcher := services.NewVulnzMatcher(feedRepo, logger)
 	scanWorker := services.NewScanWorker(scanRepo, vulnRepo, feedRepo, sbomRepo, jobQueue, logger, nil, scanVulnRepo)

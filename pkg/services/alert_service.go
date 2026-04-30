@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/transparenz/transparenz-server-oss/internal/middleware"
+	"github.com/transparenz/transparenz-server-oss/pkg/middleware"
 	"github.com/transparenz/transparenz-server-oss/pkg/models"
 	"github.com/transparenz/transparenz-server-oss/pkg/repository"
 	"go.uber.org/zap"
