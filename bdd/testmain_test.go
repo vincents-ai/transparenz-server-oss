@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/cucumber/godog"
-	"github.com/google/uuid"
 	"github.com/transparenz/transparenz-server-oss/bdd/testcontext"
 )
 
@@ -40,9 +39,7 @@ func featureContext(s *godog.ScenarioContext) {
 		sbomUploadCount = 0
 		lastVexID = ""
 		lastDisclosureID = ""
-		lastEnisaSubmissionID = ""
 		csafEnisaSubmissionID = ""
-		auditEventID = uuid.UUID{}
 		return ctx, nil
 	})
 
