@@ -1,5 +1,7 @@
 package services
 
+import "strings"
+
 type SeverityNormalizer struct{}
 
 func NewSeverityNormalizer() *SeverityNormalizer {
@@ -12,7 +14,7 @@ func (sn *SeverityNormalizer) Normalize(baseScore *float64, enisaSeverity, bsiSe
 	}
 
 	if enisaSeverity != "" {
-		return severityToScore(enisaSeverity), enisaSeverity
+		return severityToScore(enisaSeverity), strings.ToLower(enisaSeverity)
 	}
 
 	if bsiSeverity != "" {
@@ -24,14 +26,14 @@ func (sn *SeverityNormalizer) Normalize(baseScore *float64, enisaSeverity, bsiSe
 }
 
 func severityToScore(severity string) float64 {
-	switch severity {
-	case "Critical":
+	switch strings.ToLower(severity) {
+	case "critical":
 		return 10.0
-	case "High":
+	case "high":
 		return 8.0
-	case "Medium":
+	case "medium":
 		return 5.0
-	case "Low":
+	case "low":
 		return 2.0
 	default:
 		return 0.0
@@ -41,13 +43,13 @@ func severityToScore(severity string) float64 {
 func mapBSISeverity(de string) string {
 	switch de {
 	case "kritisch":
-		return "Critical"
+		return "critical"
 	case "hoch":
-		return "High"
+		return "high"
 	case "mittel":
-		return "Medium"
+		return "medium"
 	case "niedrig":
-		return "Low"
+		return "low"
 	default:
 		return "unknown"
 	}
@@ -56,13 +58,13 @@ func mapBSISeverity(de string) string {
 func scoreToSeverity(score float64) string {
 	switch {
 	case score >= 9.0:
-		return "Critical"
+		return "critical"
 	case score >= 7.0:
-		return "High"
+		return "high"
 	case score >= 4.0:
-		return "Medium"
+		return "medium"
 	case score > 0:
-		return "Low"
+		return "low"
 	default:
 		return "unknown"
 	}

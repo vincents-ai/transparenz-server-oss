@@ -101,7 +101,7 @@ func (r *SbomRepository) GetDocumentAndFormatFromPublic(ctx context.Context, id 
 	}
 	var result SbomDocumentResult
 	err = r.db.WithContext(ctx).
-		Raw("SELECT document, format FROM public.sboms WHERE id = ? AND org_id = ?", id, parsed).
+		Raw("SELECT document, format FROM compliance.sbom_uploads WHERE id = ? AND org_id = ?", id, parsed).
 		Scan(&result).Error
 	if err != nil {
 		return nil, err
@@ -123,10 +123,9 @@ func (r *SbomRepository) ExistsByID(ctx context.Context, id uuid.UUID) (bool, er
 }
 
 func (r *SbomRepository) InsertIntoPublic(ctx context.Context, upload *models.SbomUpload) error {
-	return r.db.WithContext(ctx).Exec(
-		"INSERT INTO public.sboms (id, org_id, filename, format, document) VALUES (?, ?, ?, ?, ?)",
-		upload.ID, upload.OrgID, upload.Filename, upload.Format, upload.Document,
-	).Error
+	// CreateUpload already inserts into compliance.sbom_uploads.
+	// This method is kept for interface compatibility.
+	return nil
 }
 
 func (r *SbomRepository) Delete(ctx context.Context, id uuid.UUID) error {
