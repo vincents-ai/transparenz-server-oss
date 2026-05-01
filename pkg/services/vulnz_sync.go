@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/shift/vulnz/pkg/api"
+	"github.com/vincents-ai/vulnz/pkg/api"
 	"github.com/transparenz/transparenz-server-oss/pkg/models"
 	"github.com/transparenz/transparenz-server-oss/pkg/repository"
 	"go.uber.org/zap"

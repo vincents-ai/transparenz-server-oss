@@ -15,11 +15,11 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.66.1
-	github.com/shift/enrichment-engine v0.0.0-00010101000000-000000000000
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.42.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.42.0
+	github.com/vincents-ai/enrichment-engine v0.0.0-00010101000000-000000000000
 	go.uber.org/zap v1.27.1
 	golang.org/x/crypto v0.49.0
 	golang.org/x/time v0.15.0
@@ -133,7 +133,6 @@ require (
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/sergi/go-diff v1.4.0 // indirect
-	github.com/shift/vulnz v0.0.0-00010101000000-000000000000
 	github.com/shirou/gopsutil/v4 v4.26.3 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
@@ -148,6 +147,7 @@ require (
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.1 // indirect
+	github.com/vincents-ai/vulnz v0.0.0-00010101000000-000000000000
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.etcd.io/bbolt v1.4.3 // indirect
@@ -176,6 +176,6 @@ require (
 	modernc.org/sqlite v1.48.1 // indirect
 )
 
-replace github.com/shift/enrichment-engine => ../enrichment-engine
+replace github.com/vincents-ai/enrichment-engine => ../enrichment-engine
 
-replace github.com/shift/vulnz => ../vulnz
+replace github.com/vincents-ai/vulnz => ../vulnz
