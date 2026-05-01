@@ -655,7 +655,7 @@ func runMigrations(t *testing.T, pgURL string) {
 	// Build the migrate helper first, then run it.
 	absMigrations, _ := filepath.Abs(filepath.Join(serverRoot, "migrations"))
 	binPath := filepath.Join(t.TempDir(), "migrate-helper")
-	buildCmd := exec.Command("go", "build", "-o", binPath, "github.com/transparenz/transparenz-server-oss/cmd/migrate")
+	buildCmd := exec.Command("go", "build", "-o", binPath, "github.com/vincents-ai/transparenz-server-oss/cmd/migrate")
 	buildCmd.Dir = serverRoot
 	if output, err := buildCmd.CombinedOutput(); err != nil {
 		t.Fatalf("failed to build migrate helper: %v\n%s", err, string(output))

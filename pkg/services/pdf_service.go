@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/jung-kurt/gofpdf"
-	"github.com/transparenz/transparenz-server-oss/pkg/models"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
 	"go.uber.org/zap"
 )
 

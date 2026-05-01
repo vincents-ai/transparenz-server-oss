@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/transparenz/transparenz-server-oss/pkg/middleware"
-	"github.com/transparenz/transparenz-server-oss/pkg/models"
-	"github.com/transparenz/transparenz-server-oss/pkg/repository"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/middleware"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/repository"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )

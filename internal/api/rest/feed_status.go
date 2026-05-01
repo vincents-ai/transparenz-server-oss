@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/transparenz/transparenz-server-oss/pkg/repository"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/repository"
 )
 
 type FeedStatusHandler struct {

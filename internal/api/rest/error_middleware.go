@@ -10,7 +10,7 @@ import (
 	"runtime/debug"
 
 	"github.com/gin-gonic/gin"
-	"github.com/transparenz/transparenz-server-oss/internal/api"
+	"github.com/vincents-ai/transparenz-server-oss/internal/api"
 	"go.uber.org/zap"
 )
 

@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/cucumber/godog"
-	"github.com/transparenz/transparenz-server-oss/bdd/testcontext"
+	"github.com/vincents-ai/transparenz-server-oss/bdd/testcontext"
 )
 
 func TestFeatures(t *testing.T) {

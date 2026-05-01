@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/transparenz/transparenz-server-oss/pkg/interfaces"
-	"github.com/transparenz/transparenz-server-oss/pkg/models"
-	"github.com/transparenz/transparenz-server-oss/pkg/repository"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/interfaces"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/repository"
 )
 
 var (

@@ -12,8 +12,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/vincents-ai/vulnz/pkg/api"
-	"github.com/transparenz/transparenz-server-oss/pkg/models"
-	"github.com/transparenz/transparenz-server-oss/pkg/repository"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/repository"
 	"go.uber.org/zap"
 	"gorm.io/datatypes"
 )

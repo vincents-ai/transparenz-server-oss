@@ -18,9 +18,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/transparenz/transparenz-server-oss/pkg/middleware"
-	"github.com/transparenz/transparenz-server-oss/pkg/models"
-	"github.com/transparenz/transparenz-server-oss/pkg/repository"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/middleware"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/repository"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )

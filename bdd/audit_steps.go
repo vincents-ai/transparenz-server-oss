@@ -11,7 +11,7 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/transparenz/transparenz-server-oss/pkg/middleware"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/middleware"
 )
 
 const auditTestJWTSecret = "bdd-test-secret-key-must-be-at-least-32-bytes!!"

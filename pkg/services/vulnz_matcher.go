@@ -13,8 +13,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/package-url/packageurl-go"
-	"github.com/transparenz/transparenz-server-oss/pkg/models"
-	"github.com/transparenz/transparenz-server-oss/pkg/repository"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/repository"
 	"go.uber.org/zap"
 )
 

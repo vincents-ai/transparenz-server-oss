@@ -12,7 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/transparenz/transparenz-server-oss/internal/api"
+	"github.com/vincents-ai/transparenz-server-oss/internal/api"
 )
 
 type contextKey string

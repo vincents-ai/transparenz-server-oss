@@ -7,7 +7,7 @@ package middleware
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/transparenz/transparenz-server-oss/internal/api"
+	"github.com/vincents-ai/transparenz-server-oss/internal/api"
 )
 
 // RequireRole returns a Gin middleware that enforces role-based access control.

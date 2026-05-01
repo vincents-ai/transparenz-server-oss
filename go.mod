@@ -1,4 +1,4 @@
-module github.com/transparenz/transparenz-server-oss
+module github.com/vincents-ai/transparenz-server-oss
 
 go 1.25.8
 

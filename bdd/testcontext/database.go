@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/transparenz/transparenz-server-oss/internal/config"
+	"github.com/vincents-ai/transparenz-server-oss/internal/config"
 	"gorm.io/gorm"
 )
 

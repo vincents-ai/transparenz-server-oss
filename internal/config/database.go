@@ -16,7 +16,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/spf13/viper"
-	"github.com/transparenz/transparenz-server-oss/pkg/repository"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/repository"
 	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"

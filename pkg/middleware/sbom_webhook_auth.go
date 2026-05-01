@@ -11,8 +11,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/transparenz/transparenz-server-oss/internal/api"
-	"github.com/transparenz/transparenz-server-oss/pkg/models"
+	"github.com/vincents-ai/transparenz-server-oss/internal/api"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )

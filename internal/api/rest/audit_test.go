@@ -13,10 +13,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 
-	"github.com/transparenz/transparenz-server-oss/pkg/middleware"
-	"github.com/transparenz/transparenz-server-oss/pkg/models"
-	"github.com/transparenz/transparenz-server-oss/pkg/services"
-	"github.com/transparenz/transparenz-server-oss/internal/testutil"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/middleware"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/services"
+	"github.com/vincents-ai/transparenz-server-oss/internal/testutil"
 )
 
 func setupAuditTestRouter(t *testing.T) (*gin.Engine, uuid.UUID) {

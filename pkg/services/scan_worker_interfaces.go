@@ -9,8 +9,8 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/transparenz/transparenz-server-oss/pkg/models"
-	"github.com/transparenz/transparenz-server-oss/pkg/repository"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/repository"
 )
 
 // workerScanRepository defines the scan data-access operations required by ScanWorker.

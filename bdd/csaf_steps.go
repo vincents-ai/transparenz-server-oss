@@ -10,7 +10,7 @@ import (
 
 	"github.com/cucumber/godog"
 	"github.com/google/uuid"
-	"github.com/transparenz/transparenz-server-oss/pkg/models"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
 )
 
 var csafEnisaSubmissionID string

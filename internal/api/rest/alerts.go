@@ -9,9 +9,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/transparenz/transparenz-server-oss/internal/api"
-	"github.com/transparenz/transparenz-server-oss/pkg/middleware"
-	"github.com/transparenz/transparenz-server-oss/pkg/services"
+	"github.com/vincents-ai/transparenz-server-oss/internal/api"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/middleware"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/services"
 )
 
 var (
