@@ -19,7 +19,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.42.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.42.0
-	github.com/vincents-ai/enrichment-engine v0.0.0-00010101000000-000000000000
+	github.com/vincents-ai/enrichment-engine v0.0.0-20260501225517-776a30858ee8
 	go.uber.org/zap v1.27.1
 	golang.org/x/crypto v0.49.0
 	golang.org/x/time v0.15.0
@@ -147,7 +147,7 @@ require (
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.1 // indirect
-	github.com/vincents-ai/vulnz v0.0.0-00010101000000-000000000000
+	github.com/vincents-ai/vulnz v0.0.0-20260501224434-7b2cfd2f18a2
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.etcd.io/bbolt v1.4.3 // indirect
@@ -175,7 +175,3 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.48.1 // indirect
 )
-
-replace github.com/vincents-ai/enrichment-engine => ../enrichment-engine
-
-replace github.com/vincents-ai/vulnz => ../vulnz

@@ -357,6 +357,10 @@ github.com/twitchyliquid64/golang-asm v0.15.1 h1:SU5vSMR7hnwNxj24w34ZyCi/FmDZTkS
 github.com/twitchyliquid64/golang-asm v0.15.1/go.mod h1:a1lVb/DtPvCB8fslRZhAngC2+aY1QWCk3Cedj/Gdt08=
 github.com/ugorji/go/codec v1.3.1 h1:waO7eEiFDwidsBN6agj1vJQ4AG7lh2yqXyOXqhgQuyY=
 github.com/ugorji/go/codec v1.3.1/go.mod h1:pRBVtBSKl77K30Bv8R2P+cLSGaTtex6fsA2Wjqmfxj4=
+github.com/vincents-ai/enrichment-engine v0.0.0-20260501225517-776a30858ee8 h1:1i9HKYYOg/K1vv8TWXfSKIKkk/YMpe3i+K8F5cODWpA=
+github.com/vincents-ai/enrichment-engine v0.0.0-20260501225517-776a30858ee8/go.mod h1:EswZWjBdCyhOIgaBgi2+5qOslDvchKM8VT9GeI3CnfA=
+github.com/vincents-ai/vulnz v0.0.0-20260501224434-7b2cfd2f18a2 h1:7z+COOVg2KjRSQVWYrrMRDPVBkY/DIJdsbOTcKk/EHk=
+github.com/vincents-ai/vulnz v0.0.0-20260501224434-7b2cfd2f18a2/go.mod h1:Pi2M97OasRkJFG/NlsRZdCdBXu9roqiquIPUkMHDrfU=
 github.com/xanzy/ssh-agent v0.3.3 h1:+/15pJfg/RsTxqYcX6fHqOXZwwMP+2VyYWJeWM2qQFM=
 github.com/xanzy/ssh-agent v0.3.3/go.mod h1:6dzNDKs0J9rVPHPhaGCukekBHKqfl+L3KghI1Bc68Uw=
 github.com/yusufpapurcu/wmi v1.2.4 h1:zFUKzehAFReQwLys1b/iSMl+JQGSCSjtVqQn9bBrPo0=
