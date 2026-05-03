@@ -89,7 +89,7 @@ func (s *VEXService) ApproveVEX(ctx context.Context, vexID uuid.UUID) (*models.V
 		return nil, fmt.Errorf("get VEX statement: %w", err)
 	}
 	if stmt.Status != "draft" && stmt.Status != "pending_approval" {
-		return nil, fmt.Errorf("VEX %s is not approvable (status: %s)", vexID, stmt.Status)
+		return nil, fmt.Errorf("vex %s is not approvable (status: %s)", vexID, stmt.Status)
 	}
 	stmt.Status = "active"
 	if err := s.stmtRepo.Update(ctx, stmt); err != nil {
@@ -104,7 +104,7 @@ func (s *VEXService) PublishVEX(ctx context.Context, vexID uuid.UUID, channel st
 		return nil, fmt.Errorf("get VEX statement: %w", err)
 	}
 	if stmt.Status != "active" {
-		return nil, fmt.Errorf("VEX %s is not active (status: %s)", vexID, stmt.Status)
+		return nil, fmt.Errorf("vex %s is not active (status: %s)", vexID, stmt.Status)
 	}
 
 	validChannels := map[string]bool{"file": true, "csaf": true, "enisa": true}

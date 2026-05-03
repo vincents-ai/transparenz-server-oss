@@ -151,9 +151,9 @@ func (s *ENISAService) submitToENISAAPI(org *models.Organization, csaf *CSAFDocu
 				zap.String("retry_after", retryAfter),
 				zap.String("body", string(body)),
 			)
-			return fmt.Errorf("ENISA API error %d: rate limited, retry-after: %s, body: %s", resp.StatusCode, retryAfter, string(body))
+			return fmt.Errorf("enisa API error %d: rate limited, retry-after: %s, body: %s", resp.StatusCode, retryAfter, string(body))
 		}
-		return fmt.Errorf("ENISA API error %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("enisa API error %d: %s", resp.StatusCode, string(body))
 	}
 
 	var result map[string]interface{}
@@ -171,7 +171,7 @@ func (s *ENISAService) submitToENISAAPI(org *models.Organization, csaf *CSAFDocu
 
 func (s *ENISAService) submitToCSIRT(org *models.Organization, csaf *CSAFDocument) error {
 	if org.EnisaAPIEndpoint == "" {
-		return fmt.Errorf("CSIRT endpoint not configured")
+		return fmt.Errorf("csirt endpoint not configured")
 	}
 
 	u, err := url.Parse(org.EnisaAPIEndpoint)
@@ -213,9 +213,9 @@ func (s *ENISAService) submitToCSIRT(org *models.Organization, csaf *CSAFDocumen
 				zap.String("retry_after", retryAfter),
 				zap.String("body", string(body)),
 			)
-			return fmt.Errorf("CSIRT error %d: rate limited, retry-after: %s, body: %s", resp.StatusCode, retryAfter, string(body))
+			return fmt.Errorf("csirt error %d: rate limited, retry-after: %s, body: %s", resp.StatusCode, retryAfter, string(body))
 		}
-		return fmt.Errorf("CSIRT error %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("csirt error %d: %s", resp.StatusCode, string(body))
 	}
 
 	s.logger.Info("CSIRT submission successful",
