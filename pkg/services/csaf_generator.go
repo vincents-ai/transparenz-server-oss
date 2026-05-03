@@ -156,11 +156,11 @@ func (g *CSAFGenerator) GeneratePerCVE(ctx context.Context, orgID uuid.UUID, cve
 		feedMap[feed.Cve] = feed
 	}
 
-	doc := g.buildCSAFDocument(orgID, []models.Vulnerability{*vuln}, feedMap)
+	doc := g.buildCSAFDocument(ctx, orgID, []models.Vulnerability{*vuln}, feedMap)
 	return doc, nil
 }
 
-func (g *CSAFGenerator) buildCSAFDocument(orgID uuid.UUID, vulns []models.Vulnerability, feedMap map[string]*models.VulnerabilityFeed) *CSAFDocument {
+func (g *CSAFGenerator) buildCSAFDocument(ctx context.Context, orgID uuid.UUID, vulns []models.Vulnerability, feedMap map[string]*models.VulnerabilityFeed) *CSAFDocument {
 	doc := &CSAFDocument{}
 
 	trackingID := uuid.New().String()
@@ -193,7 +193,7 @@ func (g *CSAFGenerator) buildCSAFDocument(orgID uuid.UUID, vulns []models.Vulner
 		Title: "Compliance",
 	})
 
-	g.appendSupportPeriodNotes(context.Background(), doc, orgID)
+	g.appendSupportPeriodNotes(ctx, doc, orgID)
 
 	for _, vuln := range vulns {
 		var vulnFeed *models.VulnerabilityFeed
