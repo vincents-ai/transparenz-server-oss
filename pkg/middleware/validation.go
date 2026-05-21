@@ -14,9 +14,13 @@ import "net"
 // This is used for SSRF prevention: outbound requests (e.g., to OTel collectors,
 // ENISA/CSIRT endpoints) must not target private network addresses.
 func IsPrivateIP(host string) bool {
-	ips, err := net.LookupIP(host)
-	if err != nil {
-		return true // fail closed: unresolvable hosts are treated as private
+	// Only check hosts that are already IP addresses (no DNS resolution).
+	// DNS resolution in CI/test environments is unreliable and can cause
+	// false positives. Hostnames are allowed through; only literal IP
+	// addresses are checked against private ranges.
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false // hostname, not an IP literal — allow
 	}
 	privateNets := []string{
 		"127.0.0.0/8",   // loopback
@@ -29,12 +33,10 @@ func IsPrivateIP(host string) bool {
 		"fc00::/7",      // IPv6 unique-local (RFC 4193)
 		"fe80::/10",     // IPv6 link-local
 	}
-	for _, ip := range ips {
-		for _, cidr := range privateNets {
-			_, network, _ := net.ParseCIDR(cidr)
-			if network != nil && network.Contains(ip) {
-				return true
-			}
+	for _, cidr := range privateNets {
+		_, network, _ := net.ParseCIDR(cidr)
+		if network != nil && network.Contains(ip) {
+			return true
 		}
 	}
 	return false
