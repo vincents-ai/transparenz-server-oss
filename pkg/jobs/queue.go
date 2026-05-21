@@ -233,6 +233,9 @@ func (q *JobQueue) StartWorker(ctx context.Context, jobType string, handler func
 		zap.String("type", jobType),
 	)
 
+	// Start stale job sweeper
+	go q.startStaleSweeper(ctx, jobType)
+
 	ticker := time.NewTicker(q.pollInterval)
 	defer ticker.Stop()
 
@@ -275,10 +278,103 @@ func (q *JobQueue) StartWorker(ctx context.Context, jobType string, handler func
 	}
 }
 
+// RecoverStale finds jobs that have been in "running" status longer than
+// maxAge and resets them to "pending" (for retry) or marks them "failed"
+// (if retries exhausted). This prevents jobs from getting stuck indefinitely
+// when a worker crashes or loses its database connection mid-processing.
+//
+// Returns the number of jobs recovered.
+func (q *JobQueue) RecoverStale(ctx context.Context, jobType string, maxAge time.Duration) (int, error) {
+	cutoff := time.Now().Add(-maxAge)
+
+	var staleJobs []Job
+	if err := q.db.WithContext(ctx).
+		Where("type = ? AND status = ? AND started_at < ?", jobType, "running", cutoff).
+		Find(&staleJobs).Error; err != nil {
+		return 0, fmt.Errorf("failed to query stale jobs: %w", err)
+	}
+
+	if len(staleJobs) == 0 {
+		return 0, nil
+	}
+
+	recovered := 0
+	for _, job := range staleJobs {
+		job.RetryCount++
+		now := time.Now()
+
+		if job.RetryCount >= job.MaxRetries {
+			job.Status = "failed"
+			job.Error = "job timed out: stale running job recovered by sweeper"
+			job.CompletedAt = &now
+			job.UpdatedAt = now
+			q.logger.Warn("stale job exhausted retries, marking failed",
+				zap.String("job_id", job.ID.String()),
+				zap.String("type", jobType),
+				zap.Int("retry_count", job.RetryCount),
+			)
+		} else {
+			backoff := calculateBackoff(job.RetryCount)
+			job.Status = "pending"
+			job.Error = "job timed out: stale running job recovered by sweeper"
+			job.ScheduledAt = now.Add(backoff)
+			job.StartedAt = nil
+			job.UpdatedAt = now
+			q.logger.Info("stale job recovered, rescheduled",
+				zap.String("job_id", job.ID.String()),
+				zap.String("type", jobType),
+				zap.Int("retry_count", job.RetryCount),
+				zap.Duration("backoff", backoff),
+			)
+		}
+
+		if err := q.db.WithContext(ctx).Save(&job).Error; err != nil {
+			q.logger.Error("failed to update stale job",
+				zap.String("job_id", job.ID.String()),
+				zap.Error(err),
+			)
+			continue
+		}
+		recovered++
+	}
+
+	return recovered, nil
+}
+
 func calculateBackoff(retryCount int) time.Duration {
 	minutes := 1 << retryCount
 	if minutes > 60 {
 		minutes = 60
 	}
 	return time.Duration(minutes) * time.Minute
+}
+
+// startStaleSweeper runs a background goroutine that periodically checks
+// for jobs stuck in "running" status and recovers them.
+const defaultStaleTimeout = 30 * time.Minute
+
+func (q *JobQueue) startStaleSweeper(ctx context.Context, jobType string) {
+	sweepInterval := 5 * time.Minute
+	ticker := time.NewTicker(sweepInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			recovered, err := q.RecoverStale(ctx, jobType, defaultStaleTimeout)
+			if err != nil {
+				q.logger.Error("stale job sweeper failed",
+					zap.String("type", jobType),
+					zap.Error(err),
+				)
+			} else if recovered > 0 {
+				q.logger.Info("stale job sweeper recovered jobs",
+					zap.String("type", jobType),
+					zap.Int("recovered", recovered),
+				)
+			}
+		}
+	}
 }
