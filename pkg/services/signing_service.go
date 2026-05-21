@@ -225,6 +225,30 @@ func (s *SigningService) VerifyEventChain(orgID uuid.UUID, start, end time.Time)
 			}
 		}
 
+		// Hash integrity check: recompute hash from payload and verify it matches stored EventHash
+		if verified {
+			payload := map[string]interface{}{
+				"event_type":            event.EventType,
+				"severity":              event.Severity,
+				"cve":                   event.Cve,
+				"reported_to_authority": event.ReportedToAuthority,
+				"timestamp":             event.Timestamp.Format(time.RFC3339Nano),
+				"metadata":              event.Metadata,
+			}
+			payloadJSON, marshErr := json.Marshal(payload)
+			if marshErr != nil {
+				verified = false
+				reason = "failed to reconstruct payload for hash check"
+			} else {
+				expectedHash := sha256.Sum256(payloadJSON)
+				expectedHashStr := hex.EncodeToString(expectedHash[:])
+				if event.EventHash != expectedHashStr {
+					verified = false
+					reason = "event hash mismatch: tampering detected"
+				}
+			}
+		}
+
 		results[i] = EventVerification{
 			EventID:  event.ID,
 			Hash:     event.EventHash,
