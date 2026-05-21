@@ -39,8 +39,8 @@ type Organization struct {
 }
 
 func (o *Organization) ValidateSupportPeriod() error {
-	if o.SupportPeriodMonths < 12 {
-		return fmt.Errorf("support_period_months must be >= 12, got %d", o.SupportPeriodMonths)
+	if o.SupportPeriodMonths < 0 {
+		return fmt.Errorf("support_period_months must be >= 0, got %d", o.SupportPeriodMonths)
 	}
 	return nil
 }

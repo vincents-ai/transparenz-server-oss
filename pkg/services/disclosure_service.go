@@ -91,6 +91,17 @@ func (s *DisclosureService) MarkFixed(ctx context.Context, id uuid.UUID, fixComm
 }
 
 func (s *DisclosureService) Disclose(ctx context.Context, id uuid.UUID) error {
+	disclosure, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, repository.ErrDisclosureNotFound) {
+			return ErrDisclosureNotFound
+		}
+		return err
+	}
+	// Only allow disclose from fixed status
+	if disclosure.Status != "fixed" {
+		return fmt.Errorf("%w: cannot transition from %s to disclosed", ErrInvalidDisclosureStatus, disclosure.Status)
+	}
 	return s.repo.UpdateStatus(ctx, id, "disclosed")
 }
 
