@@ -17,13 +17,46 @@ import (
 	"go.uber.org/zap"
 )
 
-var slaViolationsTotal = prometheus.NewCounter(prometheus.CounterOpts{
-	Name: "sla_violations_total",
-	Help: "Total number of SLA violations",
-})
+var (
+	slaViolationsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "sla_violations_total",
+		Help: "Total number of SLA violations",
+	})
+
+	slaDeadlinesTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "sla_deadlines_total",
+		Help: "Total SLA deadlines by status (met, breached, approaching, pending)",
+	}, []string{"status"})
+
+	// globalSlaRepo is set by NewAlertService so the GaugeFunc can access it.
+	globalSlaRepo *repository.SlaTrackingRepository
+
+	slaComplianceRatio = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Name: "sla_compliance_ratio",
+		Help: "Ratio of SLA deadlines met vs total completed (0.0–1.0). 1.0 = fully compliant.",
+	}, func() float64 {
+		if globalSlaRepo == nil {
+			return 0
+		}
+		ctx := context.Background()
+		total, err := globalSlaRepo.CountAll(ctx)
+		if err != nil || total == 0 {
+			return 0
+		}
+		breached, err := globalSlaRepo.CountByStatus(ctx, "violated")
+		if err != nil {
+			return 0
+		}
+		failed, err := globalSlaRepo.CountByStatus(ctx, "failed")
+		if err != nil {
+			return 0
+		}
+		return float64(total-breached-failed) / float64(total)
+	})
+)
 
 func init() {
-	prometheus.MustRegister(slaViolationsTotal)
+	prometheus.MustRegister(slaViolationsTotal, slaDeadlinesTotal, slaComplianceRatio)
 }
 
 // AlertService monitors SLA deadlines and broadcasts compliance alerts to connected clients.
@@ -52,6 +85,8 @@ func NewAlertService(
 	if tickInterval == 0 {
 		tickInterval = 30 * time.Second
 	}
+	globalSlaRepo = slaRepo
+
 	return &AlertService{
 		hub:            hub,
 		slaRepo:        slaRepo,
@@ -132,6 +167,7 @@ func (s *AlertService) checkApproachingDeadlines(ctx context.Context, org models
 			CVE:       sla.Cve,
 			Timestamp: time.Now(),
 		})
+		slaDeadlinesTotal.WithLabelValues("approaching").Inc()
 		*count++
 	}
 }
@@ -196,6 +232,7 @@ func (s *AlertService) checkViolations(ctx context.Context, org models.Organizat
 			Timestamp: time.Now(),
 		})
 		slaViolationsTotal.Inc()
+		slaDeadlinesTotal.WithLabelValues("breached").Inc()
 		*count++
 	}
 }

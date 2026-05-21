@@ -13,11 +13,29 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/jobs"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/middleware"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
 	"go.uber.org/zap"
 )
+
+var (
+	scanDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "vulnerability_scan_duration_seconds",
+		Help:    "Time taken to process a vulnerability scan.",
+		Buckets: prometheus.DefBuckets,
+	})
+
+	scanTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "vulnerability_scans_total",
+		Help: "Total vulnerability scans by status.",
+	}, []string{"status"})
+)
+
+func init() {
+	prometheus.MustRegister(scanDuration, scanTotal)
+}
 
 type scanJobPayload struct {
 	ScanID uuid.UUID `json:"scan_id"`
@@ -107,6 +125,11 @@ func (w *ScanWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 
 	scanCtx := middleware.ContextWithOrgID(ctx, payload.OrgID)
 
+	start := time.Now()
+	defer func() {
+		scanDuration.Observe(time.Since(start).Seconds())
+	}()
+
 	scan, err := w.scanRepo.GetByID(scanCtx, payload.ScanID)
 	if err != nil {
 		return fmt.Errorf("failed to load scan %s: %w", payload.ScanID, err)
@@ -114,9 +137,11 @@ func (w *ScanWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 
 	if err := w.processScan(scanCtx, scan); err != nil {
 		_ = w.scanRepo.UpdateStatus(scanCtx, scan.ID, "failed")
+		scanTotal.WithLabelValues("failed").Inc()
 		return err
 	}
 
+	scanTotal.WithLabelValues("completed").Inc()
 	return nil
 }
 

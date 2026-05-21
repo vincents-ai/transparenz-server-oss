@@ -23,6 +23,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/vincents-ai/transparenz-server-oss/internal/api"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/middleware"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
@@ -30,6 +31,16 @@ import (
 	"github.com/vincents-ai/transparenz-server-oss/pkg/services"
 	"go.uber.org/zap"
 )
+
+var sbomUploadSizeBytes = prometheus.NewHistogram(prometheus.HistogramOpts{
+	Name:    "sbom_upload_size_bytes",
+	Help:    "Size of uploaded SBOM files in bytes.",
+	Buckets: []float64{1024, 10 * 1024, 100 * 1024, 1024 * 1024, 5 * 1024 * 1024, 10 * 1024 * 1024},
+})
+
+func init() {
+	prometheus.MustRegister(sbomUploadSizeBytes)
+}
 
 // SbomHandler handles SBOM upload, listing, and retrieval requests.
 type SbomHandler struct {
@@ -106,6 +117,7 @@ func (h *SbomHandler) Upload(c *gin.Context) {
 
 	limited := io.LimitReader(file, h.maxSize+1)
 	written, err := io.Copy(tmpFile, limited)
+	sbomUploadSizeBytes.Observe(float64(written))
 	if err != nil {
 		if closeErr := tmpFile.Close(); closeErr != nil {
 			zap.L().Warn("failed to close temp file", zap.Error(closeErr))
