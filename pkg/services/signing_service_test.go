@@ -225,6 +225,48 @@ func TestSigningService_VerifyEventChain_Valid(t *testing.T) {
 	}
 }
 
+func TestSigningService_SignEventWithKey_NilKey(t *testing.T) {
+	db := setupTestDB(t)
+	logger := zap.NewNop()
+	svc := NewSigningService(db, logger, t.TempDir()+"/signing-key")
+
+	event := &models.ComplianceEvent{
+		ID:        uuid.New(),
+		EventType: "test_event",
+		Severity:  "high",
+		Timestamp: time.Now().UTC(),
+		Metadata:  models.JSONMap{},
+	}
+
+	err := svc.SignEventWithKey(event, nil)
+	if err == nil {
+		t.Error("expected error when signing with nil key")
+	}
+	if event.Signature != "" {
+		t.Error("expected empty signature when signing fails")
+	}
+	if event.EventHash != "" {
+		t.Error("expected empty event hash when signing fails")
+	}
+
+	// Also test with zero-length key
+	var zeroKey ed25519.PrivateKey
+	err = svc.SignEventWithKey(event, zeroKey)
+	if err == nil {
+		t.Error("expected error when signing with zero-length key")
+	}
+
+	// Verify that a valid key still works
+	svcValid := NewSigningService(db, logger, t.TempDir()+"/signing-key")
+	err = svcValid.SignEvent(event)
+	if err != nil {
+		t.Errorf("expected SignEvent to succeed with valid key: %v", err)
+	}
+	if event.Signature == "" {
+		t.Error("expected non-empty signature with valid key")
+	}
+}
+
 func TestSigningService_VerifyEventChain_Broken(t *testing.T) {
 	db := setupTestDB(t)
 	logger := zap.NewNop()

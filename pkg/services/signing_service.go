@@ -119,6 +119,10 @@ func (s *SigningService) GetActiveKey(orgID uuid.UUID) (*models.SigningKey, erro
 }
 
 func (s *SigningService) SignEventWithKey(event *models.ComplianceEvent, privateKey ed25519.PrivateKey) error {
+	if len(privateKey) == 0 {
+		return fmt.Errorf("signing key not available — cannot sign compliance event")
+	}
+
 	payload := map[string]interface{}{
 		"event_type":            event.EventType,
 		"severity":              event.Severity,

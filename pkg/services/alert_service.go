@@ -173,10 +173,13 @@ func (s *AlertService) checkViolations(ctx context.Context, org models.Organizat
 			PreviousEventHash: previousHash,
 		}
 		if err := s.signingService.SignEvent(event); err != nil {
-			s.logger.Error("failed to sign compliance event",
+			s.logger.Error("failed to sign compliance event — skipping storage to preserve hash chain integrity",
 				zap.String("org_id", sla.OrgID.String()),
 				zap.Error(err),
 			)
+			// Do NOT store unsigned events. A missing event is auditable;
+			// a broken hash chain is suspicious. The next tick will retry.
+			continue
 		}
 		if err := s.eventRepo.Create(ctx, sla.OrgID, event); err != nil {
 			s.logger.Error("failed to create audit log",
