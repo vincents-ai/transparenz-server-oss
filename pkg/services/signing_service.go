@@ -124,7 +124,7 @@ func (s *SigningService) SignEventWithKey(event *models.ComplianceEvent, private
 		"severity":              event.Severity,
 		"cve":                   event.Cve,
 		"reported_to_authority": event.ReportedToAuthority,
-		"timestamp":             event.Timestamp.Format(time.RFC3339Nano),
+		"timestamp":             event.Timestamp.UTC().Format(time.RFC3339Nano),
 		"metadata":              event.Metadata,
 	}
 
@@ -191,7 +191,7 @@ func (s *SigningService) VerifyEventChain(orgID uuid.UUID, start, end time.Time)
 					"severity":              event.Severity,
 					"cve":                   event.Cve,
 					"reported_to_authority": event.ReportedToAuthority,
-					"timestamp":             event.Timestamp.Format(time.RFC3339Nano),
+					"timestamp":             event.Timestamp.UTC().Format(time.RFC3339Nano),
 					"metadata":              event.Metadata,
 				}
 				payloadJSON, marshErr := json.Marshal(payload)
@@ -232,7 +232,7 @@ func (s *SigningService) VerifyEventChain(orgID uuid.UUID, start, end time.Time)
 				"severity":              event.Severity,
 				"cve":                   event.Cve,
 				"reported_to_authority": event.ReportedToAuthority,
-				"timestamp":             event.Timestamp.Format(time.RFC3339Nano),
+				"timestamp":             event.Timestamp.UTC().Format(time.RFC3339Nano),
 				"metadata":              event.Metadata,
 			}
 			payloadJSON, marshErr := json.Marshal(payload)
