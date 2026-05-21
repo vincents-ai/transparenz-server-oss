@@ -8,9 +8,11 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/middleware"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
 	"gorm.io/gorm"
 )
@@ -56,6 +58,16 @@ func (r *OrganizationRepository) GetBySlug(ctx context.Context, slug string) (*m
 }
 
 func (r *OrganizationRepository) Update(ctx context.Context, org *models.Organization) error {
+	// Enforce self-scope: only allow updating the organization whose ID matches
+	// the tenant context. This prevents cross-tenant updates when org IDs differ
+	// from the authenticated org context.
+	orgID, err := middleware.GetOrgIDFromContext(ctx)
+	if err == nil && orgID != "" {
+		parsed, parseErr := uuid.Parse(orgID)
+		if parseErr == nil && parsed != org.ID {
+			return fmt.Errorf("self-scope violation: cannot update organization %s under context of organization %s", org.ID, parsed)
+		}
+	}
 	return r.db.WithContext(ctx).Save(org).Error
 }
 

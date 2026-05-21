@@ -1,0 +1,1 @@
+ALTER TABLE compliance.org_telemetry_configs DROP COLUMN metrics_token_prefix;

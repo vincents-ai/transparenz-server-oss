@@ -2,7 +2,6 @@
 package rest
 
 import (
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,28 +9,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-	"github.com/vincents-ai/transparenz-server-oss/pkg/interfaces"
-	"github.com/vincents-ai/transparenz-server-oss/pkg/middleware"
-	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
-	"github.com/vincents-ai/transparenz-server-oss/pkg/repository"
 	"github.com/vincents-ai/transparenz-server-oss/internal/testutil"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/middleware"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/repository"
 )
-
-// mockPDFGenerator satisfies the PDFGenerator interface.
-type mockPDFGenerator struct {
-	data []byte
-	err  error
-}
-
-func (m *mockPDFGenerator) GeneratePDF(_ models.PDFReportData) ([]byte, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	if m.data != nil {
-		return m.data, nil
-	}
-	return []byte("%PDF-1.4 test"), nil
-}
 
 func setupExportTestDB(t *testing.T) (*repository.ComplianceEventRepository, *repository.OrganizationRepository, uuid.UUID) {
 	t.Helper()
@@ -52,11 +33,11 @@ func setupExportTestDB(t *testing.T) (*repository.ComplianceEventRepository, *re
 	return eventRepo, orgRepo, org.ID
 }
 
-func setupExportRouter(t *testing.T, gen interfaces.PDFGenerator, orgID uuid.UUID, eventRepo *repository.ComplianceEventRepository, orgRepo *repository.OrganizationRepository) *gin.Engine {
+func setupExportRouter(t *testing.T, orgID uuid.UUID, eventRepo *repository.ComplianceEventRepository, orgRepo *repository.OrganizationRepository) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
-	handler := NewExportHandler(eventRepo, orgRepo, nil, nil, gen)
+	handler := NewExportHandler(eventRepo, orgRepo, nil, nil)
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -71,7 +52,7 @@ func setupExportRouter(t *testing.T, gen interfaces.PDFGenerator, orgID uuid.UUI
 
 func TestExportAuditCSV_Success(t *testing.T) {
 	eventRepo, orgRepo, orgID := setupExportTestDB(t)
-	router := setupExportRouter(t, &mockPDFGenerator{}, orgID, eventRepo, orgRepo)
+	router := setupExportRouter(t, orgID, eventRepo, orgRepo)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/export/audit?format=csv", nil)
 	w := httptest.NewRecorder()
@@ -87,7 +68,7 @@ func TestExportAuditCSV_Success(t *testing.T) {
 
 func TestExportAuditCSV_InvalidStartDate(t *testing.T) {
 	eventRepo, orgRepo, orgID := setupExportTestDB(t)
-	router := setupExportRouter(t, &mockPDFGenerator{}, orgID, eventRepo, orgRepo)
+	router := setupExportRouter(t, orgID, eventRepo, orgRepo)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/export/audit?format=csv&start=not-a-date", nil)
 	w := httptest.NewRecorder()
@@ -99,7 +80,7 @@ func TestExportAuditCSV_InvalidStartDate(t *testing.T) {
 
 func TestExportAuditCSV_InvalidEndDate(t *testing.T) {
 	eventRepo, orgRepo, orgID := setupExportTestDB(t)
-	router := setupExportRouter(t, &mockPDFGenerator{}, orgID, eventRepo, orgRepo)
+	router := setupExportRouter(t, orgID, eventRepo, orgRepo)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/export/audit?format=csv&end=not-a-date", nil)
 	w := httptest.NewRecorder()
@@ -120,7 +101,7 @@ func TestExportAuditCSV_NoOrgContext(t *testing.T) {
 	orgRepo := repository.NewOrganizationRepository(db)
 
 	gin.SetMode(gin.TestMode)
-	handler := NewExportHandler(eventRepo, orgRepo, nil, nil, &mockPDFGenerator{})
+	handler := NewExportHandler(eventRepo, orgRepo, nil, nil)
 	router := gin.New()
 	router.GET("/api/export/audit", handler.ExportAudit)
 
@@ -132,50 +113,24 @@ func TestExportAuditCSV_NoOrgContext(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
-func TestExportAuditPDF_Success(t *testing.T) {
+// PDF export is a commercial-only feature.
+// OSS edition returns "unsupported format" for format=pdf.
+
+func TestExportAudit_PDFReturnsUnsupportedFormat(t *testing.T) {
 	eventRepo, orgRepo, orgID := setupExportTestDB(t)
-	pdfGen := &mockPDFGenerator{data: []byte("%PDF-1.4 fake-pdf-content")}
-	router := setupExportRouter(t, pdfGen, orgID, eventRepo, orgRepo)
+	router := setupExportRouter(t, orgID, eventRepo, orgRepo)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/export/audit?format=pdf", nil)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Header().Get("Content-Type"), "application/pdf")
-	assert.Contains(t, w.Header().Get("Content-Disposition"), "attachment")
-}
-
-func TestExportAuditPDF_GeneratorError(t *testing.T) {
-	eventRepo, orgRepo, orgID := setupExportTestDB(t)
-	pdfGen := &mockPDFGenerator{err: errors.New("pdf generation failed")}
-	router := setupExportRouter(t, pdfGen, orgID, eventRepo, orgRepo)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/export/audit?format=pdf", nil)
-	w := httptest.NewRecorder()
-
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
-}
-
-func TestExportAuditPDF_NilGenerator(t *testing.T) {
-	eventRepo, orgRepo, orgID := setupExportTestDB(t)
-	// Pass nil PDF generator to trigger "not configured" error
-	router := setupExportRouter(t, nil, orgID, eventRepo, orgRepo)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/export/audit?format=pdf", nil)
-	w := httptest.NewRecorder()
-
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestExportAudit_UnsupportedFormat(t *testing.T) {
 	eventRepo, orgRepo, orgID := setupExportTestDB(t)
-	router := setupExportRouter(t, &mockPDFGenerator{}, orgID, eventRepo, orgRepo)
+	router := setupExportRouter(t, orgID, eventRepo, orgRepo)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/export/audit?format=xml", nil)
 	w := httptest.NewRecorder()

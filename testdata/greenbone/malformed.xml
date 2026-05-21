@@ -1,0 +1,11 @@
+<report id="rpt-malformed
+  <results>
+    <result id="res-bad-001">
+      <name>Incomplete Result
+      <host>1.2.3.4</host>
+      <severity>not-a-number</severity>
+      <nvt oid="1.2.3">
+        <cve>CVE-BROKEN
+    </result>
+  </results>
+</report>

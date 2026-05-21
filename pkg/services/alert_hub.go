@@ -31,9 +31,15 @@ func NewAlertHub(logger *zap.Logger) *AlertHub {
 func (h *AlertHub) Broadcast(orgID string, alert *Alert) {
 	h.mu.RLock()
 	clients := h.clients[orgID]
+	// Snapshot the channels while holding the read lock to avoid
+	// racing with Subscribe/Unsubscribe which modify the map.
+	snapshot := make([]chan *Alert, 0, len(clients))
+	for ch := range clients {
+		snapshot = append(snapshot, ch)
+	}
 	h.mu.RUnlock()
 
-	for clientChan := range clients {
+	for _, clientChan := range snapshot {
 		func() {
 			defer func() {
 				//nolint:errcheck
@@ -61,7 +67,6 @@ func (h *AlertHub) Subscribe(orgID string) (<-chan *Alert, func()) {
 		h.mu.Lock()
 		if h.clients[orgID] != nil {
 			delete(h.clients[orgID], alertChan)
-			close(alertChan)
 		}
 		h.mu.Unlock()
 	}

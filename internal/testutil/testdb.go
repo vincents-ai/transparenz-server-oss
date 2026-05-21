@@ -154,7 +154,7 @@ func SetupTestDB(t *testing.T, tables ...string) *gorm.DB {
 		"scan_vulnerabilities": `CREATE TABLE IF NOT EXISTS "compliance"."scan_vulnerabilities" (
 			id text PRIMARY KEY, scan_id text NOT NULL, vulnerability_id text NOT NULL,
 			sbom_component_name text DEFAULT '', sbom_component_version text DEFAULT '',
-			sbom_component_type text DEFAULT '', sbom_component_p_url text DEFAULT '',
+			sbom_component_type text DEFAULT '', sbom_component_purl text DEFAULT '',
 			match_confidence text DEFAULT '', feed_source text DEFAULT '',
 			matched_at datetime DEFAULT CURRENT_TIMESTAMP
 		)`,

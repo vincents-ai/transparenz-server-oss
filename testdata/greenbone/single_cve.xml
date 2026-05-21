@@ -1,0 +1,16 @@
+<report id="rpt-single-cve-0001-0002-0003-000000000001" format_id="a994b278-1f62-11e1-96ac-406186ea4fc5">
+  <results>
+    <result id="res-cve-001">
+      <name>Nginx Buffer Overflow</name>
+      <host>10.0.0.5</host>
+      <port>80/tcp</port>
+      <severity>7.5</severity>
+      <qod>90</qod>
+      <description>Buffer overflow in Nginx HTTP/2 module.</description>
+      <nvt oid="1.3.6.1.4.1.25623.1.0.200001">
+        <cve>CVE-2024-99999</cve>
+      </nvt>
+      <threat>High</threat>
+    </result>
+  </results>
+</report>

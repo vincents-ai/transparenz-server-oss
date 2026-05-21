@@ -1,0 +1,28 @@
+<report id="rpt-no-cve-test-0002-0003-0004-000000000001" format_id="a994b278-1f62-11e1-96ac-406186ea4fc5">
+  <results>
+    <result id="res-nocve-001">
+      <name>OS Detection</name>
+      <host>172.16.0.1</host>
+      <port>general/tcp</port>
+      <severity>0.0</severity>
+      <qod>95</qod>
+      <description>Operating system detected: Linux 5.15</description>
+      <nvt oid="1.3.6.1.4.1.25623.1.0.300001">
+        <cve></cve>
+      </nvt>
+      <threat>Log</threat>
+    </result>
+    <result id="res-nocve-002">
+      <name>Service Detection</name>
+      <host>172.16.0.1</host>
+      <port>8080/tcp</port>
+      <severity>0.0</severity>
+      <qod>80</qod>
+      <description>Service detected: Apache Tomcat 9.0</description>
+      <nvt oid="1.3.6.1.4.1.25623.1.0.300002">
+        <cve>NOCVE</cve>
+      </nvt>
+      <threat>Log</threat>
+    </result>
+  </results>
+</report>
