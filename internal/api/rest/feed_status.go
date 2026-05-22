@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/vincents-ai/transparenz-server-oss/internal/api"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/repository"
 )
 
@@ -34,7 +35,7 @@ func (h *FeedStatusHandler) GetStatus(c *gin.Context) {
 
 	feeds, err := h.feedRepo.List(ctx, 0, 0)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalError(c, "failed to load vulnerability feeds")
 		return
 	}
 
