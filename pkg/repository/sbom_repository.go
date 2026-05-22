@@ -54,7 +54,12 @@ func (r *SbomRepository) Count(ctx context.Context) (int64, error) {
 
 func (r *SbomRepository) List(ctx context.Context, limit, offset int) ([]models.SbomUpload, error) {
 	var uploads []models.SbomUpload
-	query := r.db.WithContext(ctx).Scopes(TenantScope(ctx)).Order("created_at DESC")
+	// Exclude document column to avoid loading potentially large JSON blobs.
+	// The document is only needed for GetByID/GetDocument calls.
+	query := r.db.WithContext(ctx).
+		Scopes(TenantScope(ctx)).
+		Select("id", "org_id", "filename", "format", "size_bytes", "sha256", "created_at").
+		Order("created_at DESC")
 	if limit > 0 {
 		query = query.Limit(limit).Offset(offset)
 	}
