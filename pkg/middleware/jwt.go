@@ -18,17 +18,26 @@ import (
 // TokenIssuer is the expected issuer claim for JWT tokens.
 const TokenIssuer = "auth-service"
 
+// BillingIssuer is the issuer for billing-auth-service tokens.
+const BillingIssuer = "billing-auth-service"
+
 // TokenAudience is the expected audience claim for JWT tokens.
 const TokenAudience = "transparenz-server"
 
+// SharedTokenAudience is the shared audience for unified JWT across the suite.
+const SharedTokenAudience = "transparenz-suite"
+
 // Claims represents the JWT claims structure for authenticated users.
 // It includes user identity, organization/tenant information, and role-based permissions.
+// The union claim set is shared with billing-auth-service for unified auth.
 type Claims struct {
-	Sub     string   `json:"sub"`      // User UUID
-	Email   string   `json:"email"`    // User email
-	OrgID   string   `json:"org_id"`   // Tenant/Organization UUID
-	OrgSlug string   `json:"org_slug"` // Human-readable tenant identifier
-	Roles   []string `json:"roles"`    // User roles (admin, compliance_officer, etc.)
+	Sub       string   `json:"sub"`      // User UUID
+	Email     string   `json:"email"`    // User email
+	OrgID     string   `json:"org_id"`   // Tenant/Organization UUID
+	OrgSlug   string   `json:"org_slug"` // Human-readable tenant identifier
+	Roles     []string `json:"roles"`    // User roles (admin, compliance_officer, etc.)
+	AccountID string   `json:"account_id,omitempty"` // billing-auth-service account
+	PlanSlug  string   `json:"plan_slug,omitempty"`  // current plan (from billing-auth)
 	jwt.RegisteredClaims
 }
 
@@ -92,16 +101,15 @@ func JWTMiddleware(jwtSecret string) gin.HandlerFunc {
 		}
 
 		// Validate issuer and audience when present in the token.
-		// This ensures forward compatibility with tokens that include iss/aud
-		// while accepting legacy tokens that don't.
-		if claims.Issuer != "" && claims.Issuer != TokenIssuer {
+		// Accepts both legacy auth-service tokens and billing-auth-service tokens.
+		if claims.Issuer != "" && claims.Issuer != TokenIssuer && claims.Issuer != BillingIssuer {
 			api.Unauthorized(c, "Invalid token issuer")
 			return
 		}
 		if len(claims.Audience) > 0 {
 			audMatch := false
 			for _, aud := range claims.Audience {
-				if aud == TokenAudience {
+				if aud == TokenAudience || aud == SharedTokenAudience {
 					audMatch = true
 					break
 				}
