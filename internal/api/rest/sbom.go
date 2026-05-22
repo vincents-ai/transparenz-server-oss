@@ -72,9 +72,8 @@ type UploadResponse struct {
 }
 
 func (h *SbomHandler) Upload(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization ID not found in context")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 
@@ -229,9 +228,8 @@ func (h *SbomHandler) Upload(c *gin.Context) {
 }
 
 func (h *SbomHandler) List(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization ID not found in context")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 
@@ -274,9 +272,8 @@ func (h *SbomHandler) List(c *gin.Context) {
 }
 
 func (h *SbomHandler) GetByID(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization ID not found in context")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 
@@ -302,9 +299,8 @@ func (h *SbomHandler) GetByID(c *gin.Context) {
 }
 
 func (h *SbomHandler) Download(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization ID not found in context")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 
@@ -350,9 +346,8 @@ func (h *SbomHandler) Download(c *gin.Context) {
 }
 
 func (h *SbomHandler) Delete(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization ID not found in context")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 

@@ -32,9 +32,8 @@ func NewVEXHandler(vexService *services.VEXService, stmtRepo *repository.VexStat
 }
 
 func (h *VEXHandler) CreateVEX(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization context not available")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 
@@ -59,9 +58,8 @@ func (h *VEXHandler) CreateVEX(c *gin.Context) {
 }
 
 func (h *VEXHandler) ListVEX(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization context not available")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 
@@ -104,9 +102,8 @@ func (h *VEXHandler) ListVEX(c *gin.Context) {
 }
 
 func (h *VEXHandler) ApproveVEX(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization context not available")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 
@@ -127,9 +124,8 @@ func (h *VEXHandler) ApproveVEX(c *gin.Context) {
 }
 
 func (h *VEXHandler) PublishVEX(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization context not available")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 

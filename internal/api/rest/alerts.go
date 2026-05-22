@@ -43,9 +43,8 @@ func NewAlertHandler(hub *services.AlertHub, jwtSecret string) *AlertHandler {
 }
 
 func (h *AlertHandler) StreamAlerts(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization context not available")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 	orgID := orgUUID.String()

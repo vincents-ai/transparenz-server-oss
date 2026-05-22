@@ -32,9 +32,8 @@ type VerifyAuditRequest struct {
 }
 
 func (h *AuditHandler) VerifyAuditChain(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization ID not found in context")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 

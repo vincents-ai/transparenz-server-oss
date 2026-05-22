@@ -40,9 +40,8 @@ func (h *OrganizationHandler) UpdateSupportPeriod(c *gin.Context) {
 		return
 	}
 
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization context not available")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 
@@ -89,9 +88,8 @@ func (h *OrganizationHandler) GetSupportPeriod(c *gin.Context) {
 		return
 	}
 
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization context not available")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 

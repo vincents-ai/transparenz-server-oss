@@ -46,9 +46,8 @@ type vulnerabilityResponse struct {
 }
 
 func (h *VulnerabilityHandler) ListVulnerabilities(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization ID not found in context")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 
@@ -126,9 +125,8 @@ func (h *VulnerabilityHandler) ListVulnerabilities(c *gin.Context) {
 }
 
 func (h *VulnerabilityHandler) GetVulnerability(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization ID not found in context")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 

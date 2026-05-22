@@ -44,9 +44,8 @@ type SubmitRequest struct {
 }
 
 func (h *ENISAHandler) Submit(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization ID not found in context")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 
@@ -71,9 +70,8 @@ func (h *ENISAHandler) Submit(c *gin.Context) {
 }
 
 func (h *ENISAHandler) ListSubmissions(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization ID not found in context")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 
@@ -120,9 +118,8 @@ func (h *ENISAHandler) ListSubmissions(c *gin.Context) {
 }
 
 func (h *ENISAHandler) GetSubmission(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization ID not found in context")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 
@@ -149,9 +146,8 @@ func (h *ENISAHandler) GetSubmission(c *gin.Context) {
 }
 
 func (h *ENISAHandler) DownloadSubmission(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization ID not found in context")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 
