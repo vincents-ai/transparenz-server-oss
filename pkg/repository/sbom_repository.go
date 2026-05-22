@@ -72,6 +72,23 @@ func (r *SbomRepository) ExistsBySHA256(ctx context.Context, sha256 string) (boo
 	return count > 0, err
 }
 
+// GetBySHA256 returns an existing SBOM upload by its SHA-256 hash within the tenant scope.
+// Returns ErrSbomUploadNotFound if no matching record exists.
+func (r *SbomRepository) GetBySHA256(ctx context.Context, sha256 string) (*models.SbomUpload, error) {
+	var upload models.SbomUpload
+	err := r.db.WithContext(ctx).
+		Scopes(TenantScope(ctx)).
+		Where("sha256 = ?", sha256).
+		First(&upload).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrSbomUploadNotFound
+		}
+		return nil, err
+	}
+	return &upload, nil
+}
+
 func (r *SbomRepository) GetDocument(ctx context.Context, id uuid.UUID) ([]byte, error) {
 	var upload models.SbomUpload
 	err := r.db.WithContext(ctx).Scopes(TenantScope(ctx)).Select("document").Where("id = ?", id).First(&upload).Error

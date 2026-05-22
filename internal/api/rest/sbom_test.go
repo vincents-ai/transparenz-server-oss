@@ -217,7 +217,13 @@ func TestUpload_SHA256Deduplication(t *testing.T) {
 	req2.Header.Set("Content-Type", ct2)
 	w2 := httptest.NewRecorder()
 	router.ServeHTTP(w2, req2)
-	assert.Equal(t, http.StatusConflict, w2.Code)
+	assert.Equal(t, http.StatusOK, w2.Code)
+
+	// Verify the response contains the existing SBOM ID
+	var resp map[string]interface{}
+	json.Unmarshal(w2.Body.Bytes(), &resp)
+	assert.Contains(t, resp, "id")
+	assert.Equal(t, "SBOM with identical content already exists", resp["message"])
 }
 
 func TestUpload_SizeLimitEnforcement(t *testing.T) {

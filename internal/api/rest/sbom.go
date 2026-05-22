@@ -169,12 +169,20 @@ func (h *SbomHandler) Upload(c *gin.Context) {
 		return
 	}
 	if exists {
-		c.Header("Content-Type", "application/problem+json")
-		c.AbortWithStatusJSON(http.StatusConflict, api.ProblemDetail{
-			Type:   api.ErrBadRequest,
-			Title:  "Conflict",
-			Status: http.StatusConflict,
-			Detail: "SBOM with identical content already exists",
+		// Idempotent: return the existing SBOM record with 200 OK
+		existing, err := h.sbomRepo.GetBySHA256(ctx, sha256Str)
+		if err != nil {
+			api.InternalError(c, "failed to retrieve existing SBOM")
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"id":         existing.ID,
+			"filename":   existing.Filename,
+			"format":     existing.Format,
+			"size_bytes": existing.SizeBytes,
+			"sha256":     existing.SHA256,
+			"created_at": existing.CreatedAt,
+			"message":    "SBOM with identical content already exists",
 		})
 		return
 	}
