@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -92,12 +93,22 @@ func (h *AlertHandler) StreamAlerts(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 
 	c.Stream(func(w io.Writer) bool {
+		// Heartbeat ticker to prevent idle connection drops by reverse proxies
+		heartbeatTicker := time.NewTicker(15 * time.Second)
+		defer heartbeatTicker.Stop()
+
 		select {
 		case alert, ok := <-alerts:
 			if !ok {
 				return false
 			}
 			c.SSEvent(alert.Type, alert)
+			c.Writer.Flush()
+			return true
+		case <-heartbeatTicker.C:
+			// Send SSE comment as heartbeat — ignored by EventSource clients
+			// but keeps the connection alive through proxies and load balancers
+			c.SSEvent("heartbeat", nil)
 			c.Writer.Flush()
 			return true
 		case <-c.Request.Context().Done():
