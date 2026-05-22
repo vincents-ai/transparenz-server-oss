@@ -52,6 +52,15 @@ func (s *ScanService) CreateScan(ctx context.Context, orgID uuid.UUID, sbomID uu
 		return nil, ErrSbomNotFound
 	}
 
+	// Idempotency: if an active scan already exists for this SBOM, return it
+	activeScan, err := s.scanRepo.GetActiveBySbomID(ctx, sbomID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrFailedToCreate, err)
+	}
+	if activeScan != nil {
+		return activeScan, nil
+	}
+
 	scan := &models.Scan{
 		OrgID:  orgID,
 		SbomID: sbomID,

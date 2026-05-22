@@ -31,6 +31,9 @@ type ScanRepository interface {
 
 	// List returns a paginated list of scans.
 	List(ctx context.Context, limit, offset int) ([]models.Scan, error)
+
+	// GetActiveBySbomID returns the most recent non-terminal scan for a SBOM, or nil.
+	GetActiveBySbomID(ctx context.Context, sbomID uuid.UUID) (*models.Scan, error)
 }
 
 // SbomRepository defines the interface for SBOM data operations.
