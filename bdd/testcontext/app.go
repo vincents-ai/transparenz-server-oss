@@ -45,7 +45,7 @@ func BuildApp(ctx context.Context, db *gorm.DB, logger *zap.Logger) (*gin.Engine
 	alertHub := services.NewAlertHub(logger)
 	signingService := services.NewSigningService(db, logger, "")
 	csafGenerator := services.NewCSAFGeneratorWithOrg(vulnRepo, feedRepo, slaRepo, orgRepo)
-	enisaService := services.NewENISAService(orgRepo, subRepo, csafGenerator, nil, nil, 0, 0, 0)
+	enisaService := services.NewENISAService(orgRepo, subRepo, nil, csafGenerator, nil, alertHub, nil, 0, 0, 0)
 
 	vulnzMatcher := services.NewVulnzMatcher(feedRepo, logger)
 	scanWorker := services.NewScanWorker(scanRepo, vulnRepo, feedRepo, sbomRepo, jobQueue, logger, nil, scanVulnRepo)

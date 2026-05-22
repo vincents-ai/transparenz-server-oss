@@ -14,30 +14,42 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"github.com/vincents-ai/transparenz-server-oss/pkg/middleware"
 	"net/http"
 	"net/url"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/middleware"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/repository"
 	"go.uber.org/zap"
 )
 
+var enisaSubmissionFailuresTotal = prometheus.NewCounter(prometheus.CounterOpts{
+	Name: "enisa_submission_failures_total",
+	Help: "Total number of ENISA submissions that exhausted all retries",
+})
+
+func init() {
+	prometheus.MustRegister(enisaSubmissionFailuresTotal)
+}
+
 // ENISAService manages CSAF document submission to ENISA and national CSIRTs.
 type ENISAService struct {
 	orgRepo       *repository.OrganizationRepository
 	subRepo       *repository.EnisaSubmissionRepository
+	eventRepo     *repository.ComplianceEventRepository
 	generator     *CSAFGenerator
 	cryptoService *CryptoService
 	httpClient    *http.Client
+	alertHub      *AlertHub
 	logger        *zap.Logger
 	retryInterval time.Duration
 	maxRetries    int
 }
 
-func NewENISAService(orgRepo *repository.OrganizationRepository, subRepo *repository.EnisaSubmissionRepository, generator *CSAFGenerator, cryptoService *CryptoService, logger *zap.Logger, timeout time.Duration, retryInterval time.Duration, maxRetries int) *ENISAService {
+func NewENISAService(orgRepo *repository.OrganizationRepository, subRepo *repository.EnisaSubmissionRepository, eventRepo *repository.ComplianceEventRepository, generator *CSAFGenerator, cryptoService *CryptoService, alertHub *AlertHub, logger *zap.Logger, timeout time.Duration, retryInterval time.Duration, maxRetries int) *ENISAService {
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
@@ -50,8 +62,10 @@ func NewENISAService(orgRepo *repository.OrganizationRepository, subRepo *reposi
 	return &ENISAService{
 		orgRepo:       orgRepo,
 		subRepo:       subRepo,
+		eventRepo:     eventRepo,
 		generator:     generator,
 		cryptoService: cryptoService,
+		alertHub:      alertHub,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
@@ -236,6 +250,9 @@ func (s *ENISAService) StartRetryWorker(ctx context.Context) {
 			if err := s.retryFailed(ctx); err != nil {
 				s.logger.Error("retry failed submissions error", zap.Error(err))
 			}
+			if err := s.checkExhausted(ctx); err != nil {
+				s.logger.Error("check exhausted submissions error", zap.Error(err))
+			}
 		case <-ctx.Done():
 			return
 		}
@@ -318,3 +335,91 @@ func toJSONMap(doc *CSAFDocument) models.JSONMap {
 
 // isPrivateIP is deprecated: use middleware.IsPrivateIP instead.
 // Removed local implementation in favor of the shared one.
+
+// checkExhausted finds submissions that have exhausted all retries, marks them
+// as 'exhausted', broadcasts a CRITICAL alert, and creates a compliance event.
+// This closes the CRA Article 10 gap where failed submissions went unnoticed.
+func (s *ENISAService) checkExhausted(ctx context.Context) error {
+	submissions, err := s.subRepo.ListExhausted(ctx, s.maxRetries)
+	if err != nil {
+		return fmt.Errorf("list exhausted: %w", err)
+	}
+
+	for _, sub := range submissions {
+		// Extract CVE from CSAF document metadata
+		cve := extractCVEFromCSAF(sub.CsafDocument)
+
+		// Mark as exhausted so we don't process again
+		if err := s.subRepo.UpdateStatus(ctx, sub.ID, "exhausted"); err != nil {
+			s.logger.Error("failed to mark submission as exhausted",
+				zap.String("submission_id", sub.ID.String()),
+				zap.Error(err))
+			continue
+		}
+
+		// Broadcast CRITICAL alert via AlertHub
+		if s.alertHub != nil {
+			s.alertHub.Broadcast(sub.OrgID.String(), &Alert{
+				Type:      "enisa_submission_exhausted",
+				Severity:  "critical",
+				Message:   fmt.Sprintf("ENISA submission for %s exhausted all %d retries — CRA Article 10 non-compliance risk", cve, s.maxRetries),
+				CVE:       cve,
+				Timestamp: time.Now(),
+			})
+		}
+
+		// Create compliance event for audit trail
+		if s.eventRepo != nil {
+			event := &models.ComplianceEvent{
+				EventType: "enisa_submission_failed",
+				Severity:  "critical",
+				Cve:       cve,
+				Metadata: models.JSONMap{
+					"submission_id":   sub.ID.String(),
+					"retry_count":     sub.RetryCount,
+					"max_retries":     s.maxRetries,
+					"last_attempt_at": sub.UpdatedAt.Format(time.RFC3339),
+					"action_required": "Manual submission required to maintain CRA Article 10 compliance",
+				},
+			}
+			if err := s.eventRepo.Create(ctx, sub.OrgID, event); err != nil {
+				s.logger.Error("failed to create compliance event for exhausted submission",
+					zap.String("submission_id", sub.ID.String()),
+					zap.Error(err))
+			}
+		}
+
+		// Increment Prometheus counter
+		enisaSubmissionFailuresTotal.Inc()
+
+		s.logger.Error("ENISA submission exhausted all retries",
+			zap.String("submission_id", sub.ID.String()),
+			zap.String("org_id", sub.OrgID.String()),
+			zap.String("cve", cve),
+			zap.Int("retry_count", sub.RetryCount),
+			zap.String("recommendation", "manual submission required for CRA Article 10 compliance"),
+		)
+	}
+
+	return nil
+}
+
+// extractCVEFromCSAF extracts the CVE identifier from a CSAF document JSON map.
+func extractCVEFromCSAF(doc models.JSONMap) string {
+	if doc == nil {
+		return "unknown"
+	}
+	// CSAF /vulnerabilities[]/cve field
+	if vulns, ok := doc["vulnerabilities"].([]interface{}); ok && len(vulns) > 0 {
+		if first, ok := vulns[0].(map[string]interface{}); ok {
+			if cve, ok := first["cve"].(string); ok {
+				return cve
+			}
+		}
+	}
+	// Fallback: check top-level CVE field
+	if cve, ok := doc["cve"].(string); ok {
+		return cve
+	}
+	return "unknown"
+}

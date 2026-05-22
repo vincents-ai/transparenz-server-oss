@@ -58,7 +58,7 @@ func newENISATestService(t *testing.T) *enisaTestFixture {
 	cryptoService, err := NewCryptoService(cryptoKey)
 	require.NoError(t, err)
 
-	svc := NewENISAService(orgRepo, subRepo, generator, cryptoService, zap.NewNop(), 0, 0, 0)
+		svc := NewENISAService(orgRepo, subRepo, nil, generator, cryptoService, nil, zap.NewNop(), 0, 0, 0)
 	return &enisaTestFixture{svc: svc, orgRepo: orgRepo, subRepo: subRepo, db: db}
 }
 

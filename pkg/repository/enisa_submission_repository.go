@@ -83,3 +83,15 @@ func (r *EnisaSubmissionRepository) IncrementRetry(ctx context.Context, id uuid.
 		Where("id = ?", id).
 		UpdateColumn("retry_count", gorm.Expr("retry_count + 1")).Error
 }
+
+// ListExhausted returns submissions that have hit max retries and haven't been
+// marked as exhausted yet (status is still 'failed'). These submissions need
+// alert broadcasting and compliance event creation per CRA Article 10.
+func (r *EnisaSubmissionRepository) ListExhausted(ctx context.Context, maxRetries int) ([]models.EnisaSubmission, error) {
+	var submissions []models.EnisaSubmission
+	err := r.db.WithContext(ctx).
+		Where("status = 'failed' AND retry_count >= ?", maxRetries).
+		Order("updated_at ASC").
+		Find(&submissions).Error
+	return submissions, err
+}
