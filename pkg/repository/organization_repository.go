@@ -76,6 +76,14 @@ func (r *OrganizationRepository) ListAll(ctx context.Context) ([]models.Organiza
 	return orgs, err
 }
 
+// CountAll returns the total number of organizations.
+// Used by the license enforcer to check max_orgs limits.
+func (r *OrganizationRepository) CountAll(ctx context.Context) (int, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&models.Organization{}).Count(&count).Error
+	return int(count), err
+}
+
 func (r *OrganizationRepository) GetByTier(ctx context.Context, tier string) ([]models.Organization, error) {
 	var orgs []models.Organization
 	err := r.db.WithContext(ctx).Where("tier = ?", tier).Find(&orgs).Error
