@@ -149,6 +149,28 @@ func TestUpdateSupportPeriod_MissingMonths(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+func TestUpdateSupportPeriod_ZeroMonths(t *testing.T) {
+	router, _ := setupOrgTestRouter(t)
+
+	body := `{"months":0}`
+	req := httptest.NewRequest(http.MethodPut, "/api/organization/support-period", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, float64(0), resp["support_period_months"])
+	// months=0 means immediately unsupported
+	assert.Equal(t, true, resp["is_expired"])
+	assert.Equal(t, float64(0), resp["months_remaining"])
+	assert.Equal(t, float64(0), resp["days_remaining"])
+}
+
 func TestGetSupportPeriod_NoOrgContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := testutil.SetupTestDB(t, "organizations")

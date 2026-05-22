@@ -142,6 +142,13 @@ func (r *OrganizationRepository) GetSupportPeriodStatus(ctx context.Context, org
 	}
 
 	totalDuration := org.SupportEndDate.Sub(*org.SupportStartDate)
+	if totalDuration.Seconds() == 0 {
+		// months=0 means immediately unsupported
+		status.PercentageElapsed = 100.0
+		status.MonthsRemaining = 0
+		status.DaysRemaining = 0
+		return status, nil
+	}
 	elapsed := now.Sub(*org.SupportStartDate)
 	remaining := org.SupportEndDate.Sub(now)
 
