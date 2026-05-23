@@ -81,6 +81,15 @@ func (m *mockScanRepository) Count(_ context.Context) (int64, error) {
 	return int64(len(m.scans)), nil
 }
 
+func (m *mockScanRepository) GetActiveBySbomID(_ context.Context, sbomID uuid.UUID) (*models.Scan, error) {
+	for _, s := range m.scans {
+		if s.SbomID == sbomID && s.Status != "completed" && s.Status != "failed" {
+			return s, nil
+		}
+	}
+	return nil, nil
+}
+
 type mockSbomRepository struct {
 	existsFn func(ctx context.Context, id uuid.UUID) (bool, error)
 }

@@ -37,10 +37,10 @@ func TestValidateSupportPeriod(t *testing.T) {
 		}
 	})
 
-	t.Run("zero months fails", func(t *testing.T) {
+	t.Run("zero months passes (unset)", func(t *testing.T) {
 		org := &Organization{SupportPeriodMonths: 0}
-		if err := org.ValidateSupportPeriod(); err == nil {
-			t.Error("expected error for 0 months, got nil")
+		if err := org.ValidateSupportPeriod(); err != nil {
+			t.Errorf("expected no error for 0 months (unset), got %v", err)
 		}
 	})
 
