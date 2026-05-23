@@ -141,7 +141,7 @@ Go's `internal/` package restriction prevents other modules from importing inter
 │                           │                                   │
 │                           ▼                                   │
 │  ┌─────────────────────────────────────────────────────────┐ │
-│  │ transparenz-server-oss (this repo) via go.mod replace   │ │
+│  │ transparenz-server-oss (this repo) via go.mod require   │ │
 │  │                                                          │ │
 │  │ pkg/models · pkg/repository · pkg/services               │ │
 │  │ pkg/interfaces · pkg/middleware · pkg/jobs               │ │
@@ -153,8 +153,10 @@ Go's `internal/` package restriction prevents other modules from importing inter
 
 The commercial `go.mod` contains:
 ```
-replace github.com/transparenz/transparenz-server-oss => ../transparenz-server-oss
+require github.com/transparenz/transparenz-server-oss v0.1.5
 ```
+
+Published versions are consumed via `go get` -- no `replace` directive is needed.
 
 All shared code is maintained in this repo. The commercial edition only contains:
 - Commercial-only REST handlers (Greenbone, webhooks, signing, telemetry, PDF)
