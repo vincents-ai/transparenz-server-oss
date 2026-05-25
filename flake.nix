@@ -23,8 +23,8 @@
             version = "0.1.0";
             src = ./.;
             vendorHash = null;
-            CGO_ENABLED = 0;
-            GOOS = "linux";
+            env.CGO_ENABLED = 0;
+            env.GOOS = "linux";
             nativeBuildInputs = [ go node ];
           };
 

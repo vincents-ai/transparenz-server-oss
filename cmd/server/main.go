@@ -94,6 +94,13 @@ func runServer() {
 	scanWorker.SetVulnzMatcher(vulnzMatcher)
 	go scanWorker.Start(context.Background())
 
+	// Background worker health monitoring
+	healthRegistry := services.NewHealthRegistry(logger)
+	_ = healthRegistry // Workers register themselves via healthRegistry.Register()
+	// TODO: Embed TickWorker in ScanWorker/SlaCalculator and register:
+	//   healthRegistry.Register(scanWorker)
+	//   healthRegistry.Register(slaCalculator)
+
 	scanService := services.NewScanService(scanRepo, sbomRepo, scanWorker)
 
 	vexService := services.NewVEXService(vexStmtRepo, vexPubRepo, vulnFeedRepo, vulnRepo, db, logger, csafGenerator, enisaService)
@@ -158,6 +165,11 @@ func runServer() {
 		if err != nil || sqlDB.Ping() != nil {
 			c.Header("Content-Type", "application/problem+json")
 			c.JSON(http.StatusServiceUnavailable, gin.H{"type": "about:blank", "title": "Not Ready", "status": 503, "detail": "database disconnected"})
+			return
+		}
+		if !healthRegistry.IsHealthy() {
+			c.Header("Content-Type", "application/problem+json")
+			c.JSON(http.StatusServiceUnavailable, healthRegistry.Summary())
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "service is ready"})
