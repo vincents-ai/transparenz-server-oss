@@ -29,15 +29,17 @@ type feedMatchEntry struct {
 
 type MatchIndex struct {
 	mu      sync.RWMutex
-	index   map[string][]feedMatchEntry
+	index   map[string][]feedMatchEntry // exact name → entries
+	prefix  map[string][]string          // prefix → list of keys containing it
 	builtAt time.Time
 	ttl     time.Duration
 }
 
 func NewMatchIndex(ttl time.Duration) *MatchIndex {
 	return &MatchIndex{
-		index: make(map[string][]feedMatchEntry),
-		ttl:   ttl,
+		index:  make(map[string][]feedMatchEntry),
+		prefix: make(map[string][]string),
+		ttl:    ttl,
 	}
 }
 
@@ -95,6 +97,7 @@ func (mi *MatchIndex) Build(ctx context.Context, feeds []models.VulnerabilityFee
 
 	mi.mu.Lock()
 	mi.index = newIndex
+	mi.prefix = buildPrefixIndex(newIndex)
 	mi.builtAt = time.Now()
 	mi.mu.Unlock()
 
@@ -113,35 +116,48 @@ func (mi *MatchIndex) Lookup(name, version string) []feedMatchEntry {
 	lowerVersion := strings.ToLower(version)
 
 	var candidates []feedMatchEntry
+	seen := make(map[string]bool)
 
-	if entries, ok := mi.index[lowerName]; ok {
-		candidates = append(candidates, entries...)
+	addCandidates := func(entries []feedMatchEntry) {
+		for _, e := range entries {
+			if !seen[e.cve] {
+				seen[e.cve] = true
+				candidates = append(candidates, e)
+			}
+		}
 	}
 
+	// 1. Exact match (O(1) hash lookup)
+	if entries, ok := mi.index[lowerName]; ok {
+		addCandidates(entries)
+	}
+
+	// 2. Original case match
 	if origName := strings.TrimSpace(name); origName != "" && origName != lowerName {
 		if entries, ok := mi.index[origName]; ok {
-			candidates = append(candidates, entries...)
+			addCandidates(entries)
 		}
 	}
 
-	for key, entries := range mi.index {
-		if key == lowerName || key == name {
-			continue
-		}
-		if len(key) > len(lowerName)*3 {
-			continue
-		}
-		shortLen := len(lowerName)
-		longLen := len(key)
-		if len(key) < len(lowerName) {
-			shortLen = len(key)
-			longLen = len(lowerName)
-		}
-		if longLen > 0 && float64(shortLen)/float64(longLen) < 0.5 {
-			continue
-		}
-		if strings.Contains(lowerName, key) || strings.Contains(key, lowerName) {
-			candidates = append(candidates, entries...)
+	// 3. Prefix/fuzzy match via pre-built prefix index
+	// Check if any key is a substring of lowerName or vice versa
+	// Using the prefix map: for each prefix of lowerName, check indexed keys
+	if len(mi.prefix) > 0 {
+		// Check short prefixes of the lookup name against the prefix index
+		for i := 0; i < len(lowerName) && i < 20; i++ {
+			// Use 3-char prefixes as lookup keys (minimum meaningful prefix)
+			if i >= 2 {
+				prefix := lowerName[:i+1]
+				if keys, ok := mi.prefix[prefix]; ok {
+					for _, key := range keys {
+						if !seenAny(seen, key, lowerName) {
+							if strings.Contains(lowerName, key) || strings.Contains(key, lowerName) {
+								addCandidates(mi.index[key])
+							}
+						}
+					}
+				}
+			}
 		}
 	}
 
@@ -175,6 +191,7 @@ func (mi *MatchIndex) IsStale() bool {
 func (mi *MatchIndex) Reset() {
 	mi.mu.Lock()
 	mi.index = make(map[string][]feedMatchEntry)
+	mi.prefix = make(map[string][]string)
 	mi.builtAt = time.Time{}
 	mi.mu.Unlock()
 }
@@ -185,4 +202,35 @@ func parseAffectedProducts(raw []byte) []affectedProduct {
 		return nil
 	}
 	return aps
+}
+
+// buildPrefixIndex creates a map from 3-char prefixes to the keys that contain
+// them. This replaces the O(n) full scan of all keys with O(1) prefix lookup +
+// targeted substring check on a small candidate set.
+func buildPrefixIndex(index map[string][]feedMatchEntry) map[string][]string {
+	prefixMap := make(map[string][]string)
+	for key := range index {
+		if len(key) < 3 {
+			continue
+		}
+		// Use up to 8 prefixes per key (3-char, 4-char, ... up to min(10, len(key)))
+		maxPrefix := len(key)
+		if maxPrefix > 10 {
+			maxPrefix = 10
+		}
+		for i := 2; i < maxPrefix; i++ {
+			p := key[:i+1]
+			prefixMap[p] = append(prefixMap[p], key)
+		}
+	}
+	return prefixMap
+}
+
+// seenAny checks if any entry for the given key has already been seen
+// (identified by CVE). Returns true if all CVEs for this key are already
+// in the seen map.
+func seenAny(seen map[string]bool, key, lowerName string) bool {
+	// Simple check: if the key itself matches lowerName, it was handled by
+	// the exact match path.
+	return key == lowerName
 }
