@@ -54,6 +54,7 @@ type ScanWorker struct {
 	queue        *jobs.JobQueue
 	logger       *zap.Logger
 	enrichment   *EnrichmentService
+	tick         *TickWorker
 	mu           sync.RWMutex
 }
 
@@ -67,7 +68,7 @@ func NewScanWorker(
 	enrichment *EnrichmentService,
 	scanVulnRepo workerScanVulnerabilityRepository,
 ) *ScanWorker {
-	return &ScanWorker{
+	sw := &ScanWorker{
 		scanRepo:     scanRepo,
 		vulnRepo:     vulnRepo,
 		feedRepo:     feedRepo,
@@ -77,7 +78,12 @@ func NewScanWorker(
 		enrichment:   enrichment,
 		scanVulnRepo: scanVulnRepo,
 	}
+	sw.tick = NewTickWorker("scan_worker", 0) // interval set by job queue poll
+	return sw
 }
+
+// TickWorker returns the embedded health reporter for this worker.
+func (w *ScanWorker) TickWorker() *TickWorker { return w.tick }
 
 func (w *ScanWorker) SetGRCMappingRepository(repo workerGRCMappingRepository) {
 	w.mu.Lock()
@@ -118,6 +124,7 @@ func (w *ScanWorker) Start(ctx context.Context) {
 // ProcessJob handles a single scan job. Exported so the commercial worker pool
 // can call it directly for each claimed job without re-queueing.
 func (w *ScanWorker) ProcessJob(ctx context.Context, job *jobs.Job) error {
+	w.tick.RecordTick(0)
 	var payload scanJobPayload
 	if err := json.Unmarshal(job.Payload, &payload); err != nil {
 		w.logger.Error("failed to unmarshal scan job payload",
@@ -146,6 +153,7 @@ func (w *ScanWorker) ProcessJob(ctx context.Context, job *jobs.Job) error {
 	}
 
 	scanTotal.WithLabelValues("completed").Inc()
+	w.tick.RecordTick(1)
 	return nil
 }
 

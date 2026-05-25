@@ -96,10 +96,7 @@ func runServer() {
 
 	// Background worker health monitoring
 	healthRegistry := services.NewHealthRegistry(logger)
-	_ = healthRegistry // Workers register themselves via healthRegistry.Register()
-	// TODO: Embed TickWorker in ScanWorker/SlaCalculator and register:
-	//   healthRegistry.Register(scanWorker)
-	//   healthRegistry.Register(slaCalculator)
+	healthRegistry.Register(scanWorker.TickWorker())
 
 	scanService := services.NewScanService(scanRepo, sbomRepo, scanWorker)
 
@@ -107,6 +104,7 @@ func runServer() {
 	disclosureService := services.NewDisclosureService(disclosureRepo)
 
 	slaCalculator := services.NewSlaCalculator(vulnRepo, slaRepo, orgRepo, enisaService, db, logger, 0)
+	healthRegistry.Register(slaCalculator.TickWorker())
 	go slaCalculator.Start(context.Background())
 
 	// Handlers

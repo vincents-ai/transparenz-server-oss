@@ -47,6 +47,7 @@ type SlaCalculator struct {
 	tickInterval time.Duration
 	stopCh       chan struct{}
 	serverCtx    context.Context
+	tick         *TickWorker
 }
 
 func NewSlaCalculator(
@@ -61,7 +62,7 @@ func NewSlaCalculator(
 	if tickInterval == 0 {
 		tickInterval = 1 * time.Minute
 	}
-	return &SlaCalculator{
+	calc := &SlaCalculator{
 		vulnRepo:     vulnRepo,
 		slaRepo:      slaRepo,
 		orgRepo:      orgRepo,
@@ -71,7 +72,12 @@ func NewSlaCalculator(
 		tickInterval: tickInterval,
 		stopCh:       make(chan struct{}),
 	}
+	calc.tick = NewTickWorker("sla_calculator", tickInterval)
+	return calc
 }
+
+// TickWorker returns the embedded health reporter for this calculator.
+func (c *SlaCalculator) TickWorker() *TickWorker { return c.tick }
 
 func (c *SlaCalculator) Start(ctx context.Context) {
 	c.serverCtx = ctx
@@ -83,6 +89,7 @@ func (c *SlaCalculator) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
+			c.tick.RecordTick(0)
 			c.CalculateDeadlines(ctx)
 		case <-c.stopCh:
 			c.logger.Info("SLA calculator stopped")
