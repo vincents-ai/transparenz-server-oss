@@ -188,12 +188,15 @@ func TestVulnzSyncService_UpsertRecords_EmptyInput(t *testing.T) {
 	src := &fakeFeedSource{}
 	svc := NewVulnzSyncService(nil, src, time.Minute, logger)
 
-	synced, errs := svc.upsertRecords(context.Background(), nil)
+	synced, errs, cves := svc.upsertRecords(context.Background(), nil)
 	if synced != 0 {
 		t.Errorf("expected 0 synced, got %d", synced)
 	}
 	if errs != 0 {
 		t.Errorf("expected 0 errors, got %d", errs)
+	}
+	if len(cves) != 0 {
+		t.Errorf("expected 0 synced CVEs, got %d", len(cves))
 	}
 }
 

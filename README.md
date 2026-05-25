@@ -6,6 +6,56 @@ AGPL-3.0 licensed edition of the Transparenz compliance server. Provides core CR
 
 This repo is also the **single source of truth** for shared code used by the commercial edition (`transparenz-server`), which imports models, repositories, services, middleware, interfaces, and jobs via Go module dependency.
 
+## Vulnerability Disclosure Pipeline
+
+The OSS server provides manual-scan vulnerability detection:
+
+```
+  Feed API     VulnzSync   [manual]     Scan       SLA Calc    Alert
+  (NVD/OSV/ ──▶ Service  ──▶ trigger ──▶ Worker ──▶ Service ──▶ Service
+   EUVD/KEV)    (6h tick)   required     (5s poll)  (1m tick)   (30s tick)
+       ↓            ↓            ↓            ↓           ↓          ↓
+  Published    Ingested     Operator     Matched    Deadline   Operator
+   (T-0)        (T-1)      must act (T-2) (T-3)    set (T-4)  alerted (T-5)
+```
+
+| Stage | Component | Default Interval | Latency |
+|-------|-----------|-----------------|----------|
+| Feed sync | `VulnzSyncService` | **6 hours** | 0–6h |
+| Scan trigger | Manual `POST /api/scan` | — | **∞ (operator)** |
+| Scan processing | `ScanWorker` | 5s queue poll | 5–60s |
+| SLA calculation | `SlaCalculator` | 1 minute | 0–60s |
+| Alert notification | `AlertService` | 30 seconds | 0–30s |
+| **Total worst case** | | | **≥6h + manual** |
+
+### Differences from Commercial Edition
+
+| Feature | OSS | Commercial |
+|---------|-----|------------|
+| Feed sync interval | 6 hours | **15 minutes** |
+| Auto-rescan on feed update | ❌ Manual scan required | ✅ `AutoRescanHook` |
+| SLA erosion (Critical 72h) | 8.4% ⚠️ | **0.4%** ✅ |
+| SLA erosion (KEV 24h) | 25.2% ❌ | **1.2%** ✅ |
+| KEV-only rescan mode | N/A | Configurable |
+| Rescan cooldown | N/A | 30 min per SBOM |
+| Greenbone integration | ❌ | ✅ |
+| SBOM webhook ingestion | ❌ | ✅ |
+| ENISA API submission | Read-only | Full submit |
+| Usage telemetry | Basic | Full analytics |
+
+### SLA Deadline Fix (v0.1.6+)
+
+SLA deadlines are now anchored to the CVE's `discovered_at` timestamp, not
+`time.Now()`. This ensures ENISA/NIS2/CRA compliance — the SLA clock starts
+when the CVE is published, not when the calculator happens to run.
+
+### E2E Pipeline Test
+
+```bash
+cd tests/k6
+nix-shell -p k6 -p postgresql --run './run-e2e.sh'
+```
+
 ## Features
 
 - **SBOM Management** — Upload CycloneDX/SPDX SBOMs, track vulnerability status
@@ -153,10 +203,17 @@ Go's `internal/` package restriction prevents other modules from importing inter
 
 The commercial `go.mod` contains:
 ```
-require github.com/transparenz/transparenz-server-oss v0.1.5
+require github.com/transparenz-server-oss v0.1.6
 ```
 
 Published versions are consumed via `go get` -- no `replace` directive is needed.
+
+Commercial extensions (not in OSS):
+- `internal/services/auto_rescan.go` — PostSyncHook that auto-triggers scans after feed sync
+- `internal/config/config.go` — 15m sync interval, `AUTO_RESCAN` flag
+- `cmd/server/main.go` — Wires AutoRescanHook into VulnzSyncService
+
+See [Pipeline Differences](#differences-from-commercial-edition) for the full comparison.
 
 All shared code is maintained in this repo. The commercial edition only contains:
 - Commercial-only REST handlers (Greenbone, webhooks, signing, telemetry, PDF)
@@ -295,7 +352,7 @@ See `.env.example` for the complete list with descriptions and defaults.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `VULNZ_WORKSPACE_PATH` | `/var/lib/vulnz/workspace` | Vulnerability feed data directory |
-| `VULNZ_SYNC_INTERVAL` | `6h` | Feed sync interval |
+| `VULNZ_SYNC_INTERVAL` | `6h` | Feed sync interval (commercial default: 15m) |
 | `ALERT_TICK_INTERVAL` | `30s` | Alert check interval |
 | `SLA_TICK_INTERVAL` | `1m` | SLA calculator interval |
 | `APPROACHING_SLA_THRESHOLD` | `6h` | Warning threshold for approaching deadlines |

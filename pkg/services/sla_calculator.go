@@ -184,6 +184,21 @@ func (c *SlaCalculator) processPerCveMode(
 		vulnMap[v.Cve] = true
 	}
 
+	// Build a lookup map for CVE → DiscoveredAt so deadlines are
+	// calculated from the CVE publication date, not from when the
+	// SLA calculator happens to run. This prevents SLA erosion.
+	vulnDiscoveredAt := make(map[string]time.Time)
+	for _, v := range kevVulns {
+		if !v.DiscoveredAt.IsZero() {
+			vulnDiscoveredAt[v.Cve] = v.DiscoveredAt
+		}
+	}
+	for _, v := range criticalVulns {
+		if !v.DiscoveredAt.IsZero() {
+			vulnDiscoveredAt[v.Cve] = v.DiscoveredAt
+		}
+	}
+
 	for cve := range vulnMap {
 		exists, err := c.slaRepo.ExistsByCveAndSbom(ctx, cve, nil)
 		if err != nil {
@@ -209,9 +224,22 @@ func (c *SlaCalculator) processPerCveMode(
 			}
 		}
 
-		deadline := time.Now().Add(SlaDeadlineCritical)
-		if isKEV {
-			deadline = time.Now().Add(SlaDeadlineKEV)
+		// ENISA/NIS2/CRA: SLA deadline starts from CVE publication
+		// date (discovered_at), not from when the calculator runs.
+		var deadline time.Time
+		if discoveredAt, ok := vulnDiscoveredAt[cve]; ok {
+			if isKEV {
+				deadline = discoveredAt.Add(SlaDeadlineKEV)
+			} else {
+				deadline = discoveredAt.Add(SlaDeadlineCritical)
+			}
+		} else {
+			// Fallback: use current time if discovered_at is missing
+			if isKEV {
+				deadline = time.Now().Add(SlaDeadlineKEV)
+			} else {
+				deadline = time.Now().Add(SlaDeadlineCritical)
+			}
 		}
 
 		sla := &models.SlaTracking{
@@ -287,6 +315,19 @@ func (c *SlaCalculator) processPerSbomMode(
 		}
 	}
 
+	// Build CVE → DiscoveredAt lookup for correct SLA deadlines.
+	vulnDiscoveredAtSbom := make(map[string]time.Time)
+	for _, v := range kevVulns {
+		if !v.DiscoveredAt.IsZero() {
+			vulnDiscoveredAtSbom[v.Cve] = v.DiscoveredAt
+		}
+	}
+	for _, v := range criticalVulns {
+		if !v.DiscoveredAt.IsZero() {
+			vulnDiscoveredAtSbom[v.Cve] = v.DiscoveredAt
+		}
+	}
+
 	for sbomID, vulns := range sbomVulnMap {
 		for cve := range vulns {
 			exists, err := c.slaRepo.ExistsByCveAndSbom(ctx, cve, &sbomID)
@@ -314,9 +355,20 @@ func (c *SlaCalculator) processPerSbomMode(
 				}
 			}
 
-			deadline := time.Now().Add(SlaDeadlineCritical)
-			if isKEV {
-				deadline = time.Now().Add(SlaDeadlineKEV)
+			// SLA deadline starts from CVE publication date.
+			var deadline time.Time
+			if discoveredAt, ok := vulnDiscoveredAtSbom[cve]; ok {
+				if isKEV {
+					deadline = discoveredAt.Add(SlaDeadlineKEV)
+				} else {
+					deadline = discoveredAt.Add(SlaDeadlineCritical)
+				}
+			} else {
+				if isKEV {
+					deadline = time.Now().Add(SlaDeadlineKEV)
+				} else {
+					deadline = time.Now().Add(SlaDeadlineCritical)
+				}
 			}
 
 			sla := &models.SlaTracking{

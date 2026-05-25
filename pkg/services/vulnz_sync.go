@@ -39,12 +39,38 @@ func NewRealVulnzFeedSource() VulnzFeedSource {
 	return realVulnzFeedSource{}
 }
 
+// PostSyncHook is called after a successful feed sync.  Implementations
+// can use the sync result to trigger follow-up actions (e.g. auto-rescan).
+type PostSyncHook interface {
+	OnSyncComplete(ctx context.Context, result SyncResult) error
+}
+
+// SyncResult contains the outcome of a feed sync cycle.
+type SyncResult struct {
+	// SyncedCVEs is the set of CVEs that were upserted during this sync.
+	SyncedCVEs []SyncedCVE
+	// Duration is how long the entire sync took.
+	Duration time.Duration
+	// TotalSynced is the total number of records upserted.
+	TotalSynced int
+	// TotalErrors is the total number of upsert errors.
+	TotalErrors int
+}
+
+// SyncedCVE represents a single CVE that was synced, with its affected products.
+type SyncedCVE struct {
+	CVE              string
+	KevExploited     bool
+	AffectedProducts []api.AffectedProduct
+}
+
 type VulnzSyncService struct {
 	feedRepo     *repository.VulnerabilityFeedRepository
 	feedSource   VulnzFeedSource
 	syncInterval time.Duration
 	logger       *zap.Logger
 	stopCh       chan struct{}
+	postSyncHook PostSyncHook
 }
 
 // NewVulnzSyncService constructs a VulnzSyncService.  feedSource is the
@@ -59,6 +85,11 @@ func NewVulnzSyncService(feedRepo *repository.VulnerabilityFeedRepository, feedS
 	}
 }
 
+// SetPostSyncHook registers a hook that is called after each successful sync.
+func (s *VulnzSyncService) SetPostSyncHook(hook PostSyncHook) {
+	s.postSyncHook = hook
+}
+
 func (s *VulnzSyncService) SyncAll(ctx context.Context) error {
 	s.logger.Info("starting vulnz sync via vulnz-go library")
 
@@ -71,9 +102,11 @@ func (s *VulnzSyncService) SyncAll(ctx context.Context) error {
 	}
 
 	var totalSynced, totalErrors int
+	var syncedCVEs []SyncedCVE
 
 	for _, result := range results {
-		synced, errors := s.upsertRecords(ctx, result.Records)
+		synced, errors, cves := s.upsertRecords(ctx, result.Records)
+		syncedCVEs = append(syncedCVEs, cves...)
 		s.logger.Info("provider sync completed",
 			zap.String("provider", result.Provider),
 			zap.Int("synced", synced),
@@ -83,17 +116,32 @@ func (s *VulnzSyncService) SyncAll(ctx context.Context) error {
 		totalErrors += errors
 	}
 
+	syncResult := SyncResult{
+		SyncedCVEs:   syncedCVEs,
+		Duration:     time.Since(syncStart),
+		TotalSynced:  totalSynced,
+		TotalErrors:  totalErrors,
+	}
+
 	s.logger.Info("vulnz sync completed",
-		zap.Duration("duration", time.Since(syncStart)),
+		zap.Duration("duration", syncResult.Duration),
 		zap.Int("total_synced", totalSynced),
 		zap.Int("total_errors", totalErrors),
 	)
 
+	// Fire post-sync hook if registered
+	if s.postSyncHook != nil && len(syncedCVEs) > 0 {
+		if err := s.postSyncHook.OnSyncComplete(ctx, syncResult); err != nil {
+			s.logger.Error("post-sync hook failed", zap.Error(err))
+		}
+	}
+
 	return nil
 }
 
-func (s *VulnzSyncService) upsertRecords(ctx context.Context, records []api.FeedRecord) (int, int) {
+func (s *VulnzSyncService) upsertRecords(ctx context.Context, records []api.FeedRecord) (int, int, []SyncedCVE) {
 	var synced, errors int
+	var syncedCVEs []SyncedCVE
 
 	for _, record := range records {
 		apJSON, err := json.Marshal(record.AffectedProducts)
@@ -129,9 +177,14 @@ func (s *VulnzSyncService) upsertRecords(ctx context.Context, records []api.Feed
 			continue
 		}
 		synced++
+		syncedCVEs = append(syncedCVEs, SyncedCVE{
+			CVE:              record.Cve,
+			KevExploited:     record.KevExploited,
+			AffectedProducts: record.AffectedProducts,
+		})
 	}
 
-	return synced, errors
+	return synced, errors, syncedCVEs
 }
 
 func (s *VulnzSyncService) Start(ctx context.Context) {

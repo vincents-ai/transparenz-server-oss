@@ -109,11 +109,15 @@ func (w *ScanWorker) EnqueueScan(ctx context.Context, scanID, orgID, sbomID uuid
 	return nil
 }
 
+// Start launches a single scan worker goroutine. For parallel processing,
+// commercial edition wraps this with ScanWorkerPool which calls ProcessJob.
 func (w *ScanWorker) Start(ctx context.Context) {
-	w.queue.StartWorker(ctx, "scan", w.handleJob)
+	w.queue.StartWorker(ctx, "scan", w.ProcessJob)
 }
 
-func (w *ScanWorker) handleJob(ctx context.Context, job *jobs.Job) error {
+// ProcessJob handles a single scan job. Exported so the commercial worker pool
+// can call it directly for each claimed job without re-queueing.
+func (w *ScanWorker) ProcessJob(ctx context.Context, job *jobs.Job) error {
 	var payload scanJobPayload
 	if err := json.Unmarshal(job.Payload, &payload); err != nil {
 		w.logger.Error("failed to unmarshal scan job payload",
