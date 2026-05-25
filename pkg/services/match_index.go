@@ -7,7 +7,7 @@ package services
 
 import (
 	"context"
-	"encoding/json"
+	jsonutil "github.com/vincents-ai/transparenz-server-oss/pkg/util/jsonutil"
 	"strings"
 	"sync"
 	"time"
@@ -181,7 +181,7 @@ func (mi *MatchIndex) Reset() {
 
 func parseAffectedProducts(raw []byte) []affectedProduct {
 	var aps []affectedProduct
-	if err := json.Unmarshal(raw, &aps); err != nil {
+	if err := jsonutil.Unmarshal(raw, &aps); err != nil {
 		return nil
 	}
 	return aps

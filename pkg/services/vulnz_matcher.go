@@ -7,7 +7,7 @@ package services
 
 import (
 	"context"
-	"encoding/json"
+	jsonutil "github.com/vincents-ai/transparenz-server-oss/pkg/util/jsonutil"
 	"strings"
 	"time"
 
@@ -192,7 +192,7 @@ type affectedProduct struct {
 
 func parseSBOMComponents(sbomDoc []byte) []SBOMComponent {
 	var sbom map[string]interface{}
-	if err := json.Unmarshal(sbomDoc, &sbom); err != nil {
+	if err := jsonutil.Unmarshal(sbomDoc, &sbom); err != nil {
 		return nil
 	}
 

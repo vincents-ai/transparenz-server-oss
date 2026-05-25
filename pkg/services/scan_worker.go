@@ -7,7 +7,7 @@ package services
 
 import (
 	"context"
-	"encoding/json"
+	jsonutil "github.com/vincents-ai/transparenz-server-oss/pkg/util/jsonutil"
 	"fmt"
 	"sync"
 	"time"
@@ -126,7 +126,7 @@ func (w *ScanWorker) Start(ctx context.Context) {
 func (w *ScanWorker) ProcessJob(ctx context.Context, job *jobs.Job) error {
 	w.tick.RecordTick(0)
 	var payload scanJobPayload
-	if err := json.Unmarshal(job.Payload, &payload); err != nil {
+	if err := jsonutil.Unmarshal(job.Payload, &payload); err != nil {
 		w.logger.Error("failed to unmarshal scan job payload",
 			zap.String("job_id", job.ID.String()),
 			zap.Error(err),

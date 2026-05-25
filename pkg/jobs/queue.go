@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"time"
 
+	jsonutil "github.com/vincents-ai/transparenz-server-oss/pkg/util/jsonutil"
+
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -54,7 +56,7 @@ func (q *JobQueue) Enqueue(ctx context.Context, jobType string, payload any) (*J
 }
 
 func (q *JobQueue) EnqueueDelayed(ctx context.Context, jobType string, payload any, runAt time.Time) (*Job, error) {
-	data, err := json.Marshal(payload)
+	data, err := jsonutil.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal job payload: %w", err)
 	}
