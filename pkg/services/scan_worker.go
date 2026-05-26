@@ -233,6 +233,8 @@ func (w *ScanWorker) processScanWithVulnzMatcher(ctx context.Context, scan *mode
 	}
 
 	var vulnCount int
+	var allScanVulns []models.ScanVulnerability
+
 	for _, match := range matches {
 		vuln := &models.Vulnerability{
 			OrgID:        scan.OrgID,
@@ -263,7 +265,7 @@ func (w *ScanWorker) processScanWithVulnzMatcher(ctx context.Context, scan *mode
 			if !ok {
 				comp = SBOMComponent{Name: match.PackageName, Version: match.PackageVersion, Type: match.PackageType}
 			}
-			sv := []models.ScanVulnerability{{
+			allScanVulns = append(allScanVulns, models.ScanVulnerability{
 				ScanID:               scan.ID,
 				VulnerabilityID:      vuln.ID,
 				SbomComponentName:    comp.Name,
@@ -273,41 +275,45 @@ func (w *ScanWorker) processScanWithVulnzMatcher(ctx context.Context, scan *mode
 				MatchConfidence:      "matched",
 				FeedSource:           match.Source,
 				MatchedAt:            time.Now(),
-			}}
-			if err := w.scanVulnRepo.CreateBatch(ctx, sv); err != nil {
-				w.logger.Error("failed to create scan vulnerability record", zap.Error(err))
-			}
+			})
 		}
+	}
 
-		w.mu.RLock()
-		enrichSvc := w.enrichment
-		grcRepo := w.grcRepo
-		w.mu.RUnlock()
+	// Batch INSERT all scan_vulnerabilities in one query
+	if w.scanVulnRepo != nil && len(allScanVulns) > 0 {
+		if err := w.scanVulnRepo.CreateBatch(ctx, allScanVulns); err != nil {
+			w.logger.Error("failed to batch create scan vulnerability records", zap.Error(err))
+		}
+	}
 
-		if enrichSvc != nil && enrichSvc.IsReady() && grcRepo != nil {
+	w.mu.RLock()
+	enrichSvc := w.enrichment
+	grcRepo := w.grcRepo
+	w.mu.RUnlock()
+
+	if enrichSvc != nil && enrichSvc.IsReady() && grcRepo != nil {
+		var allGRCMappings []models.GRCMapping
+		for _, match := range matches {
 			vulnRecord := buildVulnRecord(match)
 			mappings, err := enrichSvc.EnrichVulnerability(ctx, match.CVE, vulnRecord)
 			if err != nil {
 				w.logger.Warn("enrichment failed for CVE", zap.String("cve", match.CVE), zap.Error(err))
 			} else if len(mappings) > 0 {
-				if err := grcRepo.DeleteByVulnerability(ctx, scan.OrgID, match.CVE); err != nil {
-					w.logger.Warn("failed to delete old GRC mappings", zap.String("cve", match.CVE), zap.Error(err))
-				}
-				grcMappings := make([]models.GRCMapping, 0, len(mappings))
 				for _, m := range mappings {
-					grcMappings = append(grcMappings, models.GRCMapping{
-						OrgID:           scan.OrgID,
-						VulnerabilityID: &vuln.ID,
-						Framework:       m.Framework,
-						ControlID:       m.Framework + "/" + m.ControlID,
-						MappingType:     m.MappingType,
-						Confidence:      m.Confidence,
-						Evidence:        m.Evidence,
+					allGRCMappings = append(allGRCMappings, models.GRCMapping{
+						OrgID:       scan.OrgID,
+						Framework:   m.Framework,
+						ControlID:   m.Framework + "/" + m.ControlID,
+						MappingType: m.MappingType,
+						Confidence:  m.Confidence,
+						Evidence:    m.Evidence,
 					})
 				}
-				if err := grcRepo.CreateBatch(ctx, grcMappings); err != nil {
-					w.logger.Warn("failed to store GRC mappings", zap.String("cve", match.CVE), zap.Error(err))
-				}
+			}
+		}
+		if len(allGRCMappings) > 0 {
+			if err := grcRepo.CreateBatch(ctx, allGRCMappings); err != nil {
+				w.logger.Warn("failed to batch store GRC mappings", zap.Error(err))
 			}
 		}
 	}
