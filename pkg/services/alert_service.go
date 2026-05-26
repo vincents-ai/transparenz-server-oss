@@ -19,8 +19,8 @@ import (
 
 var (
 	slaViolationsTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "sla_violations_total",
-		Help: "Total number of SLA violations",
+		Name: "sla_violations_alerted_total",
+		Help: "Total number of SLA violations that triggered alerts",
 	})
 
 	slaDeadlinesTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
