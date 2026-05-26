@@ -15,10 +15,15 @@ type Alert struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+// AlertFilter is called before broadcasting an alert. Return false to suppress.
+// Commercial uses this for gossip-based cross-node deduplication.
+type AlertFilter func(orgID string, alert *Alert) bool
+
 type AlertHub struct {
 	clients map[string]map[chan *Alert]struct{}
 	mu      sync.RWMutex
 	logger  *zap.Logger
+	filter  AlertFilter
 }
 
 func NewAlertHub(logger *zap.Logger) *AlertHub {
@@ -28,7 +33,18 @@ func NewAlertHub(logger *zap.Logger) *AlertHub {
 	}
 }
 
+// SetFilter installs an alert filter. Called by commercial server to
+// inject gossip-based dedup. If filter returns false, the alert is suppressed.
+func (h *AlertHub) SetFilter(f AlertFilter) {
+	h.filter = f
+}
+
 func (h *AlertHub) Broadcast(orgID string, alert *Alert) {
+	// Check filter (dedup, rate limiting, etc.)
+	if h.filter != nil && !h.filter(orgID, alert) {
+		return
+	}
+
 	h.mu.RLock()
 	clients := h.clients[orgID]
 	// Snapshot the channels while holding the read lock to avoid
