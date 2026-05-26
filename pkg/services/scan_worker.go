@@ -211,7 +211,7 @@ func (w *ScanWorker) processScanWithVulnzMatcher(ctx context.Context, scan *mode
 		return nil
 	}
 
-	components := parseSBOMComponents(sbomDoc)
+	components := ParseSBOMComponents(sbomDoc)
 	if len(components) == 0 {
 		w.logger.Warn("no components parsed from SBOM, skipping vulnz match")
 		scan.Status = "completed"
