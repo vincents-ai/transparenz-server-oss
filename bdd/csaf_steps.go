@@ -148,7 +148,7 @@ func csafSeedEnisaSubmission(cve string) error {
 		CsafDocument: models.JSONMap{
 			"document": map[string]interface{}{
 				"title":        fmt.Sprintf("CSAF Advisory - %s", cve),
-				"category":     "csaf_2.0",
+				"category":     "csaf_security_advisory",
 				"csaf_version": "2.0",
 				"tracking": map[string]interface{}{
 					"id":      uuid.New().String(),

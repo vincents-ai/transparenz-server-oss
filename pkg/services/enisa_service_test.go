@@ -52,8 +52,9 @@ func newENISATestService(t *testing.T) *enisaTestFixture {
 	feedRepo := repository.NewVulnerabilityFeedRepository(db)
 	vulnRepo := repository.NewVulnerabilityRepository(db)
 	slaRepo := repository.NewSlaTrackingRepository(db)
+	scanVulnRepo := repository.NewScanVulnerabilityRepository(db)
 
-	generator := NewCSAFGeneratorWithOrg(vulnRepo, feedRepo, slaRepo, orgRepo)
+	generator := NewCSAFGeneratorWithOrg(vulnRepo, feedRepo, slaRepo, orgRepo).WithScanVulnerabilityRepository(scanVulnRepo)
 	cryptoKey := "test-crypto-key-must-be-32-bytes"
 	cryptoService, err := NewCryptoService(cryptoKey)
 	require.NoError(t, err)

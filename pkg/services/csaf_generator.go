@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -69,32 +70,47 @@ type Note struct {
 	Title string `json:"title,omitempty"`
 }
 
+// ProductTree models the CSAF 2.0 product_tree. Affected products are listed
+// once as full_product_names (each with a stable product_id) and referenced
+// from each vulnerability's product_status.known_affected.
 type ProductTree struct {
-	FullNames []string  `json:"full_product_names,omitempty"`
-	Product   []Product `json:"product,omitempty"`
-	Branches  []Branch  `json:"branch,omitempty"`
+	Branches         []Branch          `json:"branches,omitempty"`
+	FullProductNames []FullProductName `json:"full_product_names,omitempty"`
 }
 
-type Product struct {
-	Name       string `json:"name"`
-	ProductID  string `json:"product_id"`
-	Version    string `json:"version,omitempty"`
-	VendorName string `json:"vendor_name,omitempty"`
+// FullProductName is a CSAF 2.0 full_product_name entry.
+type FullProductName struct {
+	ProductID                   string                      `json:"product_id"`
+	Name                        string                      `json:"name"`
+	ProductIdentificationHelper *ProductIdentificationHelper `json:"product_identification_helper,omitempty"`
+}
+
+// ProductIdentificationHelper carries identifiers (here the purl) that pin a
+// product unambiguously. All sub-fields are optional per the CSAF 2.0 schema.
+type ProductIdentificationHelper struct {
+	PURL string `json:"purl,omitempty"`
 }
 
 type Branch struct {
-	Name     string   `json:"name"`
-	Category string   `json:"category"`
-	Product  *Product `json:"product,omitempty"`
-	Branches []Branch `json:"branch,omitempty"`
+	Name             string            `json:"name"`
+	Category         string            `json:"category"`
+	FullProductNames []FullProductName `json:"full_product_names,omitempty"`
+	Branches         []Branch          `json:"branches,omitempty"`
 }
 
 type CSAFVulnerability struct {
-	CVE     string   `json:"cve"`
-	Notes   []Note   `json:"notes,omitempty"`
-	Threats []Threat `json:"threats,omitempty"`
-	Scores  []Score  `json:"scores,omitempty"`
-	IDs     []CSAFID `json:"ids,omitempty"`
+	CVE           string         `json:"cve"`
+	ProductStatus *ProductStatus `json:"product_status,omitempty"`
+	Notes         []Note         `json:"notes,omitempty"`
+	Threats       []Threat       `json:"threats,omitempty"`
+	Scores        []Score        `json:"scores,omitempty"`
+	IDs           []CSAFID       `json:"ids,omitempty"`
+}
+
+// ProductStatus states a product's status relative to the vulnerability.
+// known_affected lists the product_ids that are affected (CSAF 2.0).
+type ProductStatus struct {
+	KnownAffected []string `json:"known_affected,omitempty"`
 }
 
 type Threat struct {
@@ -120,10 +136,11 @@ type CSAFID struct {
 }
 
 type CSAFGenerator struct {
-	vulnRepo *repository.VulnerabilityRepository
-	feedRepo *repository.VulnerabilityFeedRepository
-	slaRepo  *repository.SlaTrackingRepository
-	orgRepo  *repository.OrganizationRepository
+	vulnRepo     *repository.VulnerabilityRepository
+	feedRepo     *repository.VulnerabilityFeedRepository
+	slaRepo      *repository.SlaTrackingRepository
+	orgRepo      *repository.OrganizationRepository
+	scanVulnRepo *repository.ScanVulnerabilityRepository
 }
 
 func NewCSAFGeneratorWithOrg(
@@ -138,6 +155,19 @@ func NewCSAFGeneratorWithOrg(
 		slaRepo:  slaRepo,
 		orgRepo:  orgRepo,
 	}
+}
+
+// WithScanVulnerabilityRepository wires the scan_vulnerability repository used
+// to populate the CSAF product_tree and per-vulnerability product_status.
+// Returns the receiver for chaining. Optional: when unset (or when a query
+// fails / returns no rows), generated advisories omit product_status and keep
+// the legacy wildcard CVSS product reference, so behaviour degrades gracefully.
+// This is a separate setter rather than a constructor param to keep the
+// constructor signature stable across module releases (the OSS module is
+// consumed by downstream products via a version-pinned go.mod).
+func (g *CSAFGenerator) WithScanVulnerabilityRepository(repo *repository.ScanVulnerabilityRepository) *CSAFGenerator {
+	g.scanVulnRepo = repo
+	return g
 }
 
 func (g *CSAFGenerator) GeneratePerCVE(ctx context.Context, orgID uuid.UUID, cve string) (*CSAFDocument, error) {
@@ -168,12 +198,13 @@ func (g *CSAFGenerator) buildCSAFDocument(ctx context.Context, orgID uuid.UUID, 
 
 	doc.Distribution = Distribution{TLP: "WHITE"}
 
-	doc.ProductTree = ProductTree{
-		FullNames: []string{fmt.Sprintf("Transparenz Advisory %s", trackingID)},
-	}
-
 	doc.Document.Title = fmt.Sprintf("CSAF Report - Organization %s", orgID.String())
-	doc.Document.Category = "csaf_2.0"
+	// CSAF 2.0 spec requires document.category to be one of the fixed enum values
+	// (csaf_security_advisory, csaf_vex, csaf_security_incident_response,
+	// csaf_informational_advisory, csaf_military_advisory). The literal "csaf_2.0"
+	// is the *version*, not a valid category, and fails the official JSON schema.
+	// This document is a CRA Art. 12 vulnerability report -> security advisory.
+	doc.Document.Category = "csaf_security_advisory"
 	doc.Document.CSAFVersion = "2.0"
 	doc.Document.Publisher.Name = "Transparenz Server"
 	doc.Document.Publisher.Category = "translator"
@@ -195,27 +226,55 @@ func (g *CSAFGenerator) buildCSAFDocument(ctx context.Context, orgID uuid.UUID, 
 
 	g.appendSupportPeriodNotes(ctx, doc, orgID)
 
+	// Collect affected products across all vulnerabilities to populate the
+	// CSAF 2.0 product_tree.full_product_names. Each vulnerability references
+	// its affected products by product_id in product_status.known_affected.
+	productIndex := make(map[string]FullProductName)
 	for _, vuln := range vulns {
 		var vulnFeed *models.VulnerabilityFeed
 		if feedEntry, hasFeed := feedMap[vuln.Cve]; hasFeed {
 			vulnFeed = feedEntry
 		}
-		csafVuln := g.buildVulnerability(vuln, vulnFeed)
+		csafVuln, affected := g.buildVulnerability(ctx, vuln, vulnFeed)
+		for _, fpn := range affected {
+			productIndex[fpn.ProductID] = fpn
+		}
 		doc.Vulnerabilities = append(doc.Vulnerabilities, *csafVuln)
+	}
+
+	if len(productIndex) > 0 {
+		fullNames := make([]FullProductName, 0, len(productIndex))
+		for _, fpn := range productIndex {
+			fullNames = append(fullNames, fpn)
+		}
+		doc.ProductTree = ProductTree{FullProductNames: fullNames}
 	}
 
 	return doc
 }
 
-func (g *CSAFGenerator) buildVulnerability(vuln models.Vulnerability, feed *models.VulnerabilityFeed) *CSAFVulnerability {
+// buildVulnerability builds the CSAF vulnerability entry and returns it along
+// with the affected products (for the product_tree). Affected products are
+// sourced from scan_vulnerabilities, the join that links a CVE to the SBOM
+// components (name/version/purl) it was matched against.
+func (g *CSAFGenerator) buildVulnerability(ctx context.Context, vuln models.Vulnerability, feed *models.VulnerabilityFeed) (*CSAFVulnerability, []FullProductName) {
 	csafVuln := &CSAFVulnerability{
 		CVE: vuln.Cve,
 	}
 
+	affected := g.collectAffectedProducts(ctx, vuln.ID)
+	if len(affected) > 0 {
+		csafVuln.ProductStatus = &ProductStatus{KnownAffected: productIDs(affected)}
+	}
+
 	if vuln.CvssScore != nil {
+		products := []string{"*"}
+		if len(affected) > 0 {
+			products = productIDs(affected)
+		}
 		csafVuln.Scores = []Score{
 			{
-				Products: []string{"*"},
+				Products: products,
 				CVSSV3: CVSSV3Score{
 					BaseScore:    *vuln.CvssScore,
 					BaseSeverity: vuln.Severity,
@@ -273,7 +332,75 @@ func (g *CSAFGenerator) buildVulnerability(vuln models.Vulnerability, feed *mode
 		})
 	}
 
-	return csafVuln
+	return csafVuln, affected
+}
+
+// collectAffectedProducts queries scan_vulnerabilities for the components a
+// vulnerability was matched against and maps them to CSAF FullProductName
+// entries (deduped by product_id).
+func (g *CSAFGenerator) collectAffectedProducts(ctx context.Context, vulnID uuid.UUID) []FullProductName {
+	if g.scanVulnRepo == nil {
+		return nil
+	}
+	records, err := g.scanVulnRepo.ListByVulnerabilityID(ctx, vulnID)
+	if err != nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var products []FullProductName
+	for _, rec := range records {
+		fpn := scanRecordToProduct(rec)
+		if seen[fpn.ProductID] {
+			continue
+		}
+		seen[fpn.ProductID] = true
+		products = append(products, fpn)
+	}
+	return products
+}
+
+// scanRecordToProduct maps a scan_vulnerability row to a CSAF FullProductName.
+// The product_id is the purl when available (canonical and unique), otherwise a
+// deterministic fallback derived from name and version.
+func scanRecordToProduct(rec models.ScanVulnerability) FullProductName {
+	name := rec.SbomComponentName
+	version := rec.SbomComponentVersion
+	displayName := name
+	if version != "" {
+		displayName = fmt.Sprintf("%s@%s", name, version)
+	}
+	productID := rec.SbomComponentPURL
+	if productID == "" {
+		productID = "CSAF_" + sanitizeProductID(name+"_"+version)
+	}
+	fpn := FullProductName{ProductID: productID, Name: displayName}
+	if rec.SbomComponentPURL != "" {
+		fpn.ProductIdentificationHelper = &ProductIdentificationHelper{PURL: rec.SbomComponentPURL}
+	}
+	return fpn
+}
+
+func productIDs(products []FullProductName) []string {
+	ids := make([]string, len(products))
+	for i, p := range products {
+		ids[i] = p.ProductID
+	}
+	return ids
+}
+
+func sanitizeProductID(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z'),
+			(r >= '0' && r <= '9'),
+			r == '_' || r == '-' || r == '.' || r == ':' || r == '/' || r == '@':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	return b.String()
 }
 
 func (g *CSAFGenerator) buildNotes(vuln models.Vulnerability, feed *models.VulnerabilityFeed) []Note {

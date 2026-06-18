@@ -45,8 +45,8 @@ func TestGeneratePerCVE_WithFeedData(t *testing.T) {
 	if doc.Document.Title == "" {
 		t.Fatal("expected document title to be set")
 	}
-	if doc.Document.Category != "csaf_2.0" {
-		t.Fatalf("expected category csaf_2.0, got %s", doc.Document.Category)
+	if doc.Document.Category != "csaf_security_advisory" {
+		t.Fatalf("expected category csaf_security_advisory, got %s", doc.Document.Category)
 	}
 	if len(doc.Vulnerabilities) != 1 {
 		t.Fatalf("expected 1 vulnerability, got %d", len(doc.Vulnerabilities))
@@ -230,4 +230,99 @@ func TestBuildVulnerability_WithoutFeed(t *testing.T) {
 func buildCSAFDocumentForTest(orgID uuid.UUID, vulns []models.Vulnerability, feedMap map[string]*models.VulnerabilityFeed) *CSAFDocument {
 	g := &CSAFGenerator{}
 	return g.buildCSAFDocument(context.Background(), orgID, vulns, feedMap)
+}
+
+// TestScanRecordToProduct verifies the CSAF 2.0 product mapping from a
+// scan_vulnerability row: purl becomes the canonical product_id and is also
+// emitted in product_identification_helper; without a purl a deterministic
+// fallback id is synthesized.
+func TestScanRecordToProduct(t *testing.T) {
+	t.Run("with purl", func(t *testing.T) {
+		rec := models.ScanVulnerability{
+			SbomComponentName:    "log4j-core",
+			SbomComponentVersion: "2.14.1",
+			SbomComponentPURL:    "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1",
+		}
+		fpn := scanRecordToProduct(rec)
+		if fpn.ProductID != rec.SbomComponentPURL {
+			t.Fatalf("expected product_id to be the purl, got %s", fpn.ProductID)
+		}
+		if fpn.Name != "log4j-core@2.14.1" {
+			t.Fatalf("expected display name log4j-core@2.14.1, got %s", fpn.Name)
+		}
+		if fpn.ProductIdentificationHelper == nil || fpn.ProductIdentificationHelper.PURL != rec.SbomComponentPURL {
+			t.Fatal("expected product_identification_helper.purl to be set")
+		}
+	})
+
+	t.Run("without purl uses deterministic fallback id", func(t *testing.T) {
+		rec := models.ScanVulnerability{
+			SbomComponentName:    "openssl",
+			SbomComponentVersion: "3.0.7",
+		}
+		fpn := scanRecordToProduct(rec)
+		if fpn.ProductID != "CSAF_openssl_3.0.7" {
+			t.Fatalf("expected fallback id CSAF_openssl_3.0.7, got %s", fpn.ProductID)
+		}
+		if fpn.ProductIdentificationHelper != nil {
+			t.Fatal("expected no identification helper when purl is absent")
+		}
+	})
+
+	t.Run("name without version", func(t *testing.T) {
+		fpn := scanRecordToProduct(models.ScanVulnerability{SbomComponentName: "libc"})
+		if fpn.Name != "libc" {
+			t.Fatalf("expected name libc, got %s", fpn.Name)
+		}
+	})
+}
+
+// TestSanitizeProductID checks the fallback-id sanitizer keeps purl/token-safe
+// characters and replaces everything else.
+func TestSanitizeProductID(t *testing.T) {
+	cases := map[string]string{
+		"openssl_3.0.7":             "openssl_3.0.7",
+		"pkg:maven/a/b@1.2":         "pkg:maven/a/b@1.2",
+		"name with spaces":          "name_with_spaces",
+		"weird*chars!here":         "weird_chars_here",
+	}
+	for in, want := range cases {
+		if got := sanitizeProductID(in); got != want {
+			t.Errorf("sanitizeProductID(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestCSAFProductStatus_GracefulDegradation verifies that when no
+// scan_vulnerability repository is wired (the backward-compatible default),
+// generated advisories omit product_status and keep the legacy wildcard CVSS
+// product reference instead of failing.
+func TestCSAFProductStatus_GracefulDegradation(t *testing.T) {
+	cvss := 7.5
+	vuln := models.Vulnerability{
+		ID:           uuid.New(),
+		OrgID:        testOrgID(),
+		Cve:          "CVE-2024-2222",
+		CvssScore:    &cvss,
+		Severity:     "high",
+		DiscoveredAt: time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+	}
+	// buildCSAFDocumentForTest uses &CSAFGenerator{} with a nil scanVulnRepo.
+	doc := buildCSAFDocumentForTest(testOrgID(), []models.Vulnerability{vuln}, nil)
+
+	if len(doc.Vulnerabilities) != 1 {
+		t.Fatalf("expected 1 vulnerability, got %d", len(doc.Vulnerabilities))
+	}
+	csafVuln := doc.Vulnerabilities[0]
+	if csafVuln.ProductStatus != nil {
+		t.Fatalf("expected nil product_status when scan repo is unwired, got %+v", csafVuln.ProductStatus)
+	}
+	// No affected products => empty product_tree (omitempty drops it).
+	if len(doc.ProductTree.FullProductNames) != 0 {
+		t.Fatalf("expected empty product_tree when scan repo is unwired, got %d products", len(doc.ProductTree.FullProductNames))
+	}
+	// CVSS score falls back to the wildcard product reference.
+	if len(csafVuln.Scores) != 1 || len(csafVuln.Scores[0].Products) != 1 || csafVuln.Scores[0].Products[0] != "*" {
+		t.Fatalf("expected wildcard CVSS product reference, got %+v", csafVuln.Scores)
+	}
 }
