@@ -202,17 +202,24 @@ func (c *SlaCalculator) processPerCveMode(
 		}
 
 		isKEV := false
+		var matched repository.VulnerabilityWithSbom
 		for _, v := range kevVulns {
 			if v.Cve == cve {
 				isKEV = true
+				matched = v
 				break
 			}
 		}
-
-		deadline := time.Now().Add(SlaDeadlineCritical)
-		if isKEV {
-			deadline = time.Now().Add(SlaDeadlineKEV)
+		if !isKEV {
+			for _, v := range criticalVulns {
+				if v.Cve == cve {
+					matched = v
+					break
+				}
+			}
 		}
+
+		deadline := computeDeadline(matched.Vulnerability, isKEV)
 
 		sla := &models.SlaTracking{
 			OrgID:    orgID,
@@ -307,17 +314,24 @@ func (c *SlaCalculator) processPerSbomMode(
 			}
 
 			isKEV := false
+			var matched repository.VulnerabilityWithSbom
 			for _, v := range kevVulns {
 				if v.Cve == cve && v.SbomID != nil && *v.SbomID == sbomID {
 					isKEV = true
+					matched = v
 					break
 				}
 			}
-
-			deadline := time.Now().Add(SlaDeadlineCritical)
-			if isKEV {
-				deadline = time.Now().Add(SlaDeadlineKEV)
+			if !isKEV {
+				for _, v := range criticalVulns {
+					if v.Cve == cve && v.SbomID != nil && *v.SbomID == sbomID {
+					matched = v
+					break
+				}
+				}
 			}
+
+			deadline := computeDeadline(matched.Vulnerability, isKEV)
 
 			sla := &models.SlaTracking{
 				OrgID:    orgID,
@@ -351,6 +365,46 @@ func (c *SlaCalculator) processPerSbomMode(
 	}
 
 	return created
+}
+
+// computeDeadline returns the CRA Art. 10 SLA deadline for a vulnerability,
+// anchored to when the vuln became known to the vendor rather than to the
+// moment the calculator happened to run. CRA Art. 10(1) (exploited) clocks run
+// from exploitation; Art. 10(2) (critical) clocks run from when the vuln was
+// known to the manufacturer.
+//
+// Anchor selection:
+//   - KEV/exploited (24h): KevDateAdded (the exploitation date) if present,
+//     otherwise DiscoveredAt.
+//   - critical (72h): DiscoveredAt (the known-to-vendor date).
+//
+// Guards:
+//   - A zero or future anchor (missing feed data / clock skew) falls back to
+//     time.Now() so we never persist a 1970-based or future deadline.
+//   - A deadline already in the past is returned as-is: the SLA is genuinely
+//     already breached and the breach detector (alert_service) will flip it to
+//     'violated' and sign the event. Surfacing real breaches is the point of
+//     this function — masking them was the original bug.
+func computeDeadline(vuln models.Vulnerability, isKEV bool) time.Time {
+	var anchor time.Time
+	if isKEV && vuln.KevDateAdded != nil {
+		anchor = *vuln.KevDateAdded
+	} else {
+		anchor = vuln.DiscoveredAt
+	}
+
+	now := time.Now()
+	window := SlaDeadlineCritical
+	if isKEV {
+		window = SlaDeadlineKEV
+	}
+
+	if anchor.IsZero() || anchor.After(now) {
+		// Missing/stale feed data: cannot reconstruct the regulatory clock
+		// start, so start from now rather than persist a nonsensical deadline.
+		return now.Add(window)
+	}
+	return anchor.Add(window)
 }
 
 func (c *SlaCalculator) detectAndHandleBreaches(ctx context.Context) {
