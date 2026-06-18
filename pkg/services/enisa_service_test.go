@@ -7,8 +7,10 @@ package services
 
 import (
 	"context"
+	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,6 +141,78 @@ func TestENISAService_Submit_APIMode_MockServer(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, sub)
 	assert.Equal(t, "failed", sub.Status)
+}
+
+// TestENISAService_Submit_APIMode_Success_PersistsReceipt verifies the three
+// reliability fixes from the ENISA regulatory review: (1) a stable SubmissionID
+// is generated and sent as the Idempotency-Key header so retries don't create
+// duplicate filings; (2) the authority's response (the receipt) is captured;
+// (3) status flips to 'submitted' and SubmittedAt is set.
+//
+// The SSRF guard (middleware.IsPrivateIP) blocks IP literals like 127.0.0.1
+// but allows hostnames, so the mock endpoint is addressed via 'localhost'.
+func TestENISAService_Submit_APIMode_Success_PersistsReceipt(t *testing.T) {
+	var capturedIdempotencyKey string
+	mockServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedIdempotencyKey = r.Header.Get("Idempotency-Key")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"accepted","submission_id":"EVD-RECEIPT-123"}`))
+	}))
+	defer mockServer.Close()
+
+	fix := newENISATestService(t)
+	// InsecureSkipVerify so we can reach the loopback mock via the 'localhost'
+	// hostname (which passes the SSRF guard) without fighting the test cert's
+	// SANs. Production code never sets this — it validates TLS normally.
+	fix.svc.httpClient = &http.Client{
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
+	}
+
+	encryptedKey, encErr := fix.svc.cryptoService.Encrypt("fake-api-key")
+	require.NoError(t, encErr)
+
+	// Address the mock via 'localhost' so the SSRF guard (which only blocks IP
+	// literals) allows the request through.
+	endpoint := strings.Replace(mockServer.URL, "127.0.0.1", "localhost", 1)
+
+	org := &models.Organization{
+		ID:                   uuid.New(),
+		Name:                 "API Success Org",
+		Slug:                 "api-success-org",
+		EnisaSubmissionMode:  "api",
+		EnisaAPIEndpoint:     endpoint,
+		EnisaAPIKeyEncrypted: encryptedKey,
+		CsafScope:            "per_sbom",
+		SlaTrackingMode:      "per_cve",
+	}
+	require.NoError(t, fix.orgRepo.Create(context.Background(), org))
+
+	vuln := &models.Vulnerability{
+		ID:       uuid.New(),
+		OrgID:    org.ID,
+		Cve:      "CVE-2024-7777",
+		Severity: "medium",
+	}
+	require.NoError(t, fix.db.Create(vuln).Error)
+
+	ctx := middleware.ContextWithOrgID(context.Background(), org.ID)
+	sub, err := fix.svc.Submit(ctx, org.ID, "CVE-2024-7777", nil)
+
+	require.NoError(t, err)
+	require.NotNil(t, sub)
+	assert.Equal(t, "submitted", sub.Status, "successful submission must flip status to 'submitted'")
+
+	// (1) Idempotency: a stable SubmissionID was generated and sent as the key.
+	assert.NotEmpty(t, sub.SubmissionID, "SubmissionID must be generated for idempotency")
+	assert.Equal(t, sub.SubmissionID, capturedIdempotencyKey, "Idempotency-Key header must equal SubmissionID")
+
+	// (2) Receipt: the authority's response is captured, not discarded.
+	require.NotNil(t, sub.Response, "submission receipt must be persisted on success")
+	assert.Equal(t, "accepted", sub.Response["status"])
+	assert.Equal(t, "EVD-RECEIPT-123", sub.Response["submission_id"])
+
+	// (3) Accepted timestamp recorded.
+	require.NotNil(t, sub.SubmittedAt, "SubmittedAt must be set on success")
 }
 
 func TestENISAService_Submit_UnknownMode(t *testing.T) {

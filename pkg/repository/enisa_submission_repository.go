@@ -8,6 +8,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
@@ -82,4 +83,18 @@ func (r *EnisaSubmissionRepository) IncrementRetry(ctx context.Context, id uuid.
 	return r.db.WithContext(ctx).Model(&models.EnisaSubmission{}).
 		Where("id = ?", id).
 		UpdateColumn("retry_count", gorm.Expr("retry_count + 1")).Error
+}
+
+// MarkSubmitted records a successful filing: sets status to 'submitted', stores
+// the authority's response (the submission receipt / acknowledgement) and the
+// accepted timestamp. Called from both the initial Submit path and the retry
+// worker so receipts are never lost. Cross-tenant safe for the background worker.
+func (r *EnisaSubmissionRepository) MarkSubmitted(ctx context.Context, id uuid.UUID, response models.JSONMap) error {
+	return r.db.WithContext(ctx).Model(&models.EnisaSubmission{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"status":       "submitted",
+			"response":     response,
+			"submitted_at": time.Now().UTC(),
+		}).Error
 }

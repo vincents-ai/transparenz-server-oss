@@ -74,26 +74,33 @@ func (s *ENISAService) Submit(ctx context.Context, orgID uuid.UUID, cve string, 
 
 	submission := &models.EnisaSubmission{
 		OrgID:        orgID,
+		SubmissionID: fmt.Sprintf("CSAF-%s", uuid.New().String()[:8]),
 		CsafDocument: toJSONMap(csafDoc),
 		Status:       "pending",
 	}
 
 	switch org.EnisaSubmissionMode {
 	case "api":
-		err = s.submitToENISAAPI(org, csafDoc)
-		if err != nil {
+		receipt, submitErr := s.submitToENISAAPI(org, csafDoc, submission.SubmissionID)
+		if submitErr != nil {
 			submission.Status = "failed"
-			s.logger.Error("ENISA API submission failed", zap.Error(err))
+			s.logger.Error("ENISA API submission failed", zap.Error(submitErr))
 		} else {
 			submission.Status = "submitted"
+			submission.Response = receipt
+			now := time.Now().UTC()
+			submission.SubmittedAt = &now
 		}
 	case "csirt":
-		err = s.submitToCSIRT(org, csafDoc)
-		if err != nil {
+		receipt, submitErr := s.submitToCSIRT(org, csafDoc, submission.SubmissionID)
+		if submitErr != nil {
 			submission.Status = "failed"
-			s.logger.Error("CSIRT submission failed", zap.Error(err))
+			s.logger.Error("CSIRT submission failed", zap.Error(submitErr))
 		} else {
 			submission.Status = "submitted"
+			submission.Response = receipt
+			now := time.Now().UTC()
+			submission.SubmittedAt = &now
 		}
 	case "export":
 		submission.Status = "pending"
@@ -108,37 +115,44 @@ func (s *ENISAService) Submit(ctx context.Context, orgID uuid.UUID, cve string, 
 	return submission, nil
 }
 
-func (s *ENISAService) submitToENISAAPI(org *models.Organization, csaf *CSAFDocument) error {
+func (s *ENISAService) submitToENISAAPI(org *models.Organization, csaf *CSAFDocument, idempotencyKey string) (models.JSONMap, error) {
 	if org.EnisaAPIEndpoint == "" {
-		return fmt.Errorf("ENISA API endpoint not configured")
+		return nil, fmt.Errorf("ENISA API endpoint not configured")
 	}
 
 	u, err := url.Parse(org.EnisaAPIEndpoint)
 	if err != nil || u.Scheme != "https" || middleware.IsPrivateIP(u.Hostname()) {
-		return fmt.Errorf("invalid ENISA API endpoint: must be HTTPS and not a private IP")
+		return nil, fmt.Errorf("invalid ENISA API endpoint: must be HTTPS and not a private IP")
 	}
 
 	payload, err := json.Marshal(csaf)
 	if err != nil {
-		return fmt.Errorf("failed to marshal CSAF: %w", err)
+		return nil, fmt.Errorf("failed to marshal CSAF: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", org.EnisaAPIEndpoint, bytes.NewReader(payload))
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	if idempotencyKey != "" {
+		// Idempotency-Key lets ENISA dedupe retries of the same filing (e.g. when
+		// the first attempt reached the server but the response was lost). The
+		// key is the persisted SubmissionID, stable across the initial Submit and
+		// all background retries.
+		req.Header.Set("Idempotency-Key", idempotencyKey)
+	}
 
 	apiKey, err := s.cryptoService.Decrypt(org.EnisaAPIKeyEncrypted)
 	if err != nil {
-		return fmt.Errorf("failed to decrypt API key: %w", err)
+		return nil, fmt.Errorf("failed to decrypt API key: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
+		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
@@ -151,14 +165,15 @@ func (s *ENISAService) submitToENISAAPI(org *models.Organization, csaf *CSAFDocu
 				zap.String("retry_after", retryAfter),
 				zap.String("body", string(body)),
 			)
-			return fmt.Errorf("enisa API error %d: rate limited, retry-after: %s, body: %s", resp.StatusCode, retryAfter, string(body))
+			return nil, fmt.Errorf("enisa API error %d: rate limited, retry-after: %s, body: %s", resp.StatusCode, retryAfter, string(body))
 		}
-		return fmt.Errorf("enisa API error %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("enisa API error %d: %s", resp.StatusCode, string(body))
 	}
 
-	var result map[string]interface{}
+	var result models.JSONMap
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		s.logger.Warn("failed to parse ENISA response", zap.Error(err))
+		result = nil
 	}
 
 	s.logger.Info("ENISA submission successful",
@@ -166,41 +181,44 @@ func (s *ENISAService) submitToENISAAPI(org *models.Organization, csaf *CSAFDocu
 		zap.Int("status_code", resp.StatusCode),
 	)
 
-	return nil
+	return result, nil
 }
 
-func (s *ENISAService) submitToCSIRT(org *models.Organization, csaf *CSAFDocument) error {
+func (s *ENISAService) submitToCSIRT(org *models.Organization, csaf *CSAFDocument, idempotencyKey string) (models.JSONMap, error) {
 	if org.EnisaAPIEndpoint == "" {
-		return fmt.Errorf("csirt endpoint not configured")
+		return nil, fmt.Errorf("csirt endpoint not configured")
 	}
 
 	u, err := url.Parse(org.EnisaAPIEndpoint)
 	if err != nil || u.Scheme != "https" || middleware.IsPrivateIP(u.Hostname()) {
-		return fmt.Errorf("invalid CSIRT endpoint: must be HTTPS and not a private IP")
+		return nil, fmt.Errorf("invalid CSIRT endpoint: must be HTTPS and not a private IP")
 	}
 
 	payload, err := json.Marshal(csaf)
 	if err != nil {
-		return fmt.Errorf("failed to marshal CSAF: %w", err)
+		return nil, fmt.Errorf("failed to marshal CSAF: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", org.EnisaAPIEndpoint, bytes.NewReader(payload))
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	if idempotencyKey != "" {
+		req.Header.Set("Idempotency-Key", idempotencyKey)
+	}
 	if org.EnisaAPIKeyEncrypted != "" {
 		apiKey, err := s.cryptoService.Decrypt(org.EnisaAPIKeyEncrypted)
 		if err != nil {
-			return fmt.Errorf("failed to decrypt API key: %w", err)
+			return nil, fmt.Errorf("failed to decrypt API key: %w", err)
 		}
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
+		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
@@ -213,9 +231,15 @@ func (s *ENISAService) submitToCSIRT(org *models.Organization, csaf *CSAFDocumen
 				zap.String("retry_after", retryAfter),
 				zap.String("body", string(body)),
 			)
-			return fmt.Errorf("csirt error %d: rate limited, retry-after: %s, body: %s", resp.StatusCode, retryAfter, string(body))
+			return nil, fmt.Errorf("csirt error %d: rate limited, retry-after: %s, body: %s", resp.StatusCode, retryAfter, string(body))
 		}
-		return fmt.Errorf("csirt error %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("csirt error %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result models.JSONMap
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		s.logger.Warn("failed to parse CSIRT response", zap.Error(err))
+		result = nil
 	}
 
 	s.logger.Info("CSIRT submission successful",
@@ -223,7 +247,7 @@ func (s *ENISAService) submitToCSIRT(org *models.Organization, csaf *CSAFDocumen
 		zap.Int("status_code", resp.StatusCode),
 	)
 
-	return nil
+	return result, nil
 }
 
 func (s *ENISAService) StartRetryWorker(ctx context.Context) {
@@ -273,12 +297,13 @@ func (s *ENISAService) retryFailed(ctx context.Context) error {
 			}
 		}
 
+		var receipt models.JSONMap
 		var submitErr error
 		switch org.EnisaSubmissionMode {
 		case "api":
-			submitErr = s.submitToENISAAPI(org, csafDoc)
+			receipt, submitErr = s.submitToENISAAPI(org, csafDoc, sub.SubmissionID)
 		case "csirt":
-			submitErr = s.submitToCSIRT(org, csafDoc)
+			receipt, submitErr = s.submitToCSIRT(org, csafDoc, sub.SubmissionID)
 		default:
 			continue
 		}
@@ -292,7 +317,14 @@ func (s *ENISAService) retryFailed(ctx context.Context) error {
 			continue
 		}
 
-		_ = s.subRepo.UpdateStatus(ctx, sub.ID, "submitted")
+		// Persist the receipt (submission acknowledgement) so there is auditable
+		// evidence the authority accepted the filing — not just a status flip.
+		if err := s.subRepo.MarkSubmitted(ctx, sub.ID, receipt); err != nil {
+			s.logger.Warn("retry succeeded but failed to persist receipt",
+				zap.String("submission_id", sub.ID.String()),
+				zap.Error(err),
+			)
+		}
 		s.logger.Info("retry successful",
 			zap.String("submission_id", sub.ID.String()),
 		)

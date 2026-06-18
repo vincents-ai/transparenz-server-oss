@@ -102,6 +102,11 @@ func runServer() {
 	slaCalculator := services.NewSlaCalculator(vulnRepo, slaRepo, orgRepo, enisaService, db, logger, 0)
 	go slaCalculator.Start(context.Background())
 
+	// Retry failed ENISA/CSIRT submissions (transient 5xx/429/network errors).
+	// Matches the proprietary server's wiring; without this, failed regulatory
+	// submissions are never retried in the OSS product.
+	go enisaService.StartRetryWorker(context.Background())
+
 	// Handlers
 	scanHandler := rest.NewScanHandlerWithVulns(scanService, scanVulnRepo, logger)
 	sbomHandler := rest.NewSbomHandler(sbomRepo, int64(cfg.MaxSBOMSize), alertHub)
