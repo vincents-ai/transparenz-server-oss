@@ -99,7 +99,8 @@ func runServer() {
 	vexService := services.NewVEXService(vexStmtRepo, vexPubRepo, vulnFeedRepo, vulnRepo, db, logger, csafGenerator, enisaService)
 	disclosureService := services.NewDisclosureService(disclosureRepo)
 
-	slaCalculator := services.NewSlaCalculator(vulnRepo, slaRepo, orgRepo, enisaService, db, logger, 0)
+	slaCalculator := services.NewSlaCalculator(vulnRepo, slaRepo, orgRepo, enisaService, db, logger, 0).
+		WithEnisaSubmissionRepository(enisaSubRepo)
 	go slaCalculator.Start(context.Background())
 
 	// Retry failed ENISA/CSIRT submissions (transient 5xx/429/network errors).

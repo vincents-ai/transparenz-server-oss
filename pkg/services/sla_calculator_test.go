@@ -229,3 +229,94 @@ func TestSlaCalculator_OwnsPendingToViolatedTransition(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, unnotified2, "notified SLA must not be returned again")
 }
+
+// TestSlaCalculator_ReconcileAutoSubmitted verifies the reconciler closes the
+// reporting gap from fix #5: when an ENISA submission that initially failed
+// (leaving the SLA pending) later succeeds via the retry worker, the SLA is
+// flipped to auto_submitted so status reflects the eventual success.
+func TestSlaCalculator_ReconcileAutoSubmitted(t *testing.T) {
+	db := testutil.SetupTestDB(t, "organizations", "sla_tracking", "enisa_submissions")
+	slaRepo := repository.NewSlaTrackingRepository(db)
+	subRepo := repository.NewEnisaSubmissionRepository(db)
+	ctx := t.Context()
+
+	t.Run("pending SLA flipped when matching submission is submitted", func(t *testing.T) {
+		orgID := uuid.New()
+		require.NoError(t, db.Create(&models.Organization{ID: orgID, Name: "auto-org", Slug: "auto-org", SlaMode: SlaAutomationFullyAutomatic}).Error)
+
+		cve := "CVE-2024-RECON"
+		sla := &models.SlaTracking{
+			ID: uuid.New(), OrgID: orgID, Cve: cve, Status: "pending",
+			Deadline: time.Now().Add(24 * time.Hour),
+		}
+		require.NoError(t, slaRepo.Create(ctx, orgID, sla))
+
+		// A submitted ENISA filing whose CSAF doc carries the same CVE.
+		require.NoError(t, subRepo.Create(ctx, orgID, &models.EnisaSubmission{
+			OrgID: orgID, SubmissionID: "CSAF-recon-1", Status: "submitted",
+			CsafDocument: models.JSONMap{"vulnerabilities": []interface{}{
+				map[string]interface{}{"cve": cve},
+			}},
+		}))
+
+		calc := &SlaCalculator{db: db, logger: zap.NewNop(), slaRepo: slaRepo, orgRepo: repository.NewOrganizationRepository(db), enisaSubRepo: subRepo}
+		calc.reconcileAutoSubmitted(ctx)
+
+		var got models.SlaTracking
+		require.NoError(t, db.First(&got, "id = ?", sla.ID).Error)
+		assert.Equal(t, "auto_submitted", got.Status, "pending SLA with a successful matching submission must flip to auto_submitted")
+	})
+
+	t.Run("no flip when CVE does not match", func(t *testing.T) {
+		orgID := uuid.New()
+		require.NoError(t, db.Create(&models.Organization{ID: orgID, Name: "nomatch-org", Slug: "nomatch-org", SlaMode: SlaAutomationFullyAutomatic}).Error)
+		sla := &models.SlaTracking{ID: uuid.New(), OrgID: orgID, Cve: "CVE-OTHER", Status: "pending", Deadline: time.Now().Add(24 * time.Hour)}
+		require.NoError(t, slaRepo.Create(ctx, orgID, sla))
+		require.NoError(t, subRepo.Create(ctx, orgID, &models.EnisaSubmission{
+			OrgID: orgID, SubmissionID: "CSAF-other-1", Status: "submitted",
+			CsafDocument: models.JSONMap{"vulnerabilities": []interface{}{map[string]interface{}{"cve": "CVE-DIFFERENT"}}},
+		}))
+
+		calc := &SlaCalculator{db: db, logger: zap.NewNop(), slaRepo: slaRepo, orgRepo: repository.NewOrganizationRepository(db), enisaSubRepo: subRepo}
+		calc.reconcileAutoSubmitted(ctx)
+
+		var got models.SlaTracking
+		require.NoError(t, db.First(&got, "id = ?", sla.ID).Error)
+		assert.Equal(t, "pending", got.Status, "SLA with no matching submission must stay pending")
+	})
+
+	t.Run("no flip for non-fully_automatic org", func(t *testing.T) {
+		orgID := uuid.New()
+		require.NoError(t, db.Create(&models.Organization{ID: orgID, Name: "alerts-org", Slug: "alerts-org", SlaMode: SlaAutomationAlertsOnly}).Error)
+		cve := "CVE-NOAUTO"
+		sla := &models.SlaTracking{ID: uuid.New(), OrgID: orgID, Cve: cve, Status: "pending", Deadline: time.Now().Add(24 * time.Hour)}
+		require.NoError(t, slaRepo.Create(ctx, orgID, sla))
+		require.NoError(t, subRepo.Create(ctx, orgID, &models.EnisaSubmission{
+			OrgID: orgID, SubmissionID: "CSAF-noauto-1", Status: "submitted",
+			CsafDocument: models.JSONMap{"vulnerabilities": []interface{}{map[string]interface{}{"cve": cve}}},
+		}))
+
+		calc := &SlaCalculator{db: db, logger: zap.NewNop(), slaRepo: slaRepo, orgRepo: repository.NewOrganizationRepository(db), enisaSubRepo: subRepo}
+		calc.reconcileAutoSubmitted(ctx)
+
+		var got models.SlaTracking
+		require.NoError(t, db.First(&got, "id = ?", sla.ID).Error)
+		assert.Equal(t, "pending", got.Status, "non-fully_automatic orgs do not autosubmit and must not be reconciled")
+	})
+
+	t.Run("nil submission repo is a no-op", func(t *testing.T) {
+		// Defends the nil-safe contract so unwired callers don't panic.
+		calc := &SlaCalculator{db: db, logger: zap.NewNop(), slaRepo: slaRepo, orgRepo: repository.NewOrganizationRepository(db), enisaSubRepo: nil}
+		assert.NotPanics(t, func() { calc.reconcileAutoSubmitted(ctx) })
+	})
+}
+
+// TestCveFromCsafDoc covers the CSAF-JSON CVE extractor (defensive parsing).
+func TestCveFromCsafDoc(t *testing.T) {
+	assert.Equal(t, "CVE-2024-X", cveFromCsafDoc(models.JSONMap{"vulnerabilities": []interface{}{map[string]interface{}{"cve": "CVE-2024-X"}}}))
+	assert.Equal(t, "", cveFromCsafDoc(nil))
+	assert.Equal(t, "", cveFromCsafDoc(models.JSONMap{}))
+	assert.Equal(t, "", cveFromCsafDoc(models.JSONMap{"vulnerabilities": []interface{}{}}))
+	assert.Equal(t, "", cveFromCsafDoc(models.JSONMap{"vulnerabilities": "not-a-slice"}))
+	assert.Equal(t, "", cveFromCsafDoc(models.JSONMap{"vulnerabilities": []interface{}{map[string]interface{}{ /* no cve */ }}}))
+}

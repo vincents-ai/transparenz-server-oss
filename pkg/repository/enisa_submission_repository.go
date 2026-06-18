@@ -62,6 +62,19 @@ func (r *EnisaSubmissionRepository) List(ctx context.Context, limit, offset int)
 	return submissions, err
 }
 
+// ListSubmittedByOrg returns this org's ENISA submissions that have been
+// successfully filed (status='submitted'). Used by the SLA reconciler to
+// reflect later-successful retries onto the corresponding SLA status.
+func (r *EnisaSubmissionRepository) ListSubmittedByOrg(ctx context.Context) ([]models.EnisaSubmission, error) {
+	var submissions []models.EnisaSubmission
+	err := r.db.WithContext(ctx).
+		Scopes(TenantScope(ctx)).
+		Where("status = ?", "submitted").
+		Order("created_at DESC").
+		Find(&submissions).Error
+	return submissions, err
+}
+
 func (r *EnisaSubmissionRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
 	return r.db.WithContext(ctx).Model(&models.EnisaSubmission{}).
 		Scopes(TenantScope(ctx)).

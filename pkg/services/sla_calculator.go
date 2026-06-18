@@ -42,6 +42,7 @@ type SlaCalculator struct {
 	slaRepo      *repository.SlaTrackingRepository
 	orgRepo      *repository.OrganizationRepository
 	enisaService autoSubmitter
+	enisaSubRepo *repository.EnisaSubmissionRepository
 	db           *gorm.DB
 	logger       *zap.Logger
 	tickInterval time.Duration
@@ -78,6 +79,16 @@ func NewSlaCalculator(
 		tickInterval: tickInterval,
 		stopCh:       make(chan struct{}),
 	}
+}
+
+// WithEnisaSubmissionRepository wires the ENISA submission repository used by
+// the reconciler to reflect later-successful retries onto SLA status. Optional:
+// when unset, reconciliation is skipped (SLAs stay pending/violated if a retry
+// later succeeds — the EnisaSubmission row remains the authoritative record).
+// Separate setter to keep the constructor signature stable across releases.
+func (c *SlaCalculator) WithEnisaSubmissionRepository(repo *repository.EnisaSubmissionRepository) *SlaCalculator {
+	c.enisaSubRepo = repo
+	return c
 }
 
 func (c *SlaCalculator) Start(ctx context.Context) {
@@ -128,6 +139,12 @@ func (c *SlaCalculator) CalculateDeadlines(ctx context.Context) {
 	)
 
 	c.detectAndHandleBreaches(ctx)
+
+	// Reflect later-successful ENISA retries onto SLA status: if a submission
+	// that initially failed (leaving the SLA pending/violated) later succeeded
+	// via the retry worker, flip the SLA to auto_submitted. No-op when the
+	// submission repo isn't wired.
+	c.reconcileAutoSubmitted(ctx)
 }
 
 func (c *SlaCalculator) processOrganization(ctx context.Context, org models.Organization) (created, skipped, errors int) {
@@ -412,6 +429,101 @@ func computeDeadline(vuln models.Vulnerability, isKEV bool) time.Time {
 		return now.Add(window)
 	}
 	return anchor.Add(window)
+}
+
+// reconcileAutoSubmitted flips SLAs to "auto_submitted" when their ENISA
+// submission has since succeeded via the retry worker. Fix #5 made the initial
+// autosubmit flip integrity-correct (only on confirmed success in-flight), but
+// a submission that initially FAILED and later succeeded on retry leaves the
+// SLA stuck in pending/violated. This pass closes that reporting gap.
+//
+// No-op when enisaSubRepo is unset. Idempotent: once an SLA is auto_submitted
+// it's no longer pending/violated so it won't be revisited. The EnisaSubmission
+// row remains the authoritative record regardless.
+func (c *SlaCalculator) reconcileAutoSubmitted(ctx context.Context) {
+	if c.enisaSubRepo == nil {
+		return
+	}
+	orgs, err := c.orgRepo.ListAll(ctx)
+	if err != nil {
+		c.logger.Error("failed to list organizations for SLA reconciliation", zap.Error(err))
+		return
+	}
+	var totalReconciled int
+	for _, org := range orgs {
+		// Only fully_automatic orgs autosubmit, so only they can be reconciled.
+		if org.SlaMode != SlaAutomationFullyAutomatic {
+			continue
+		}
+		orgCtx := middleware.ContextWithOrgID(ctx, org.ID)
+
+		submitted, err := c.enisaSubRepo.ListSubmittedByOrg(orgCtx)
+		if err != nil {
+			c.logger.Error("failed to list submitted ENISA submissions for reconciliation",
+				zap.String("org_id", org.ID.String()),
+				zap.Error(err))
+			continue
+		}
+		if len(submitted) == 0 {
+			continue
+		}
+		submittedCVEs := make(map[string]bool, len(submitted))
+		for _, sub := range submitted {
+			if cve := cveFromCsafDoc(sub.CsafDocument); cve != "" {
+				submittedCVEs[cve] = true
+			}
+		}
+		if len(submittedCVEs) == 0 {
+			continue
+		}
+
+		for _, status := range []string{"pending", "violated"} {
+			slas, err := c.slaRepo.ListByStatus(orgCtx, status, 1000, 0)
+			if err != nil {
+				c.logger.Error("failed to list SLAs for reconciliation",
+					zap.String("org_id", org.ID.String()),
+					zap.String("status", status),
+					zap.Error(err))
+				continue
+			}
+			for _, sla := range slas {
+				if !submittedCVEs[sla.Cve] {
+					continue
+				}
+				if err := c.slaRepo.UpdateStatus(orgCtx, sla.ID, "auto_submitted"); err != nil {
+					c.logger.Warn("failed to reconcile SLA to auto_submitted",
+						zap.String("sla_id", sla.ID.String()),
+						zap.String("cve", sla.Cve),
+						zap.Error(err))
+					continue
+				}
+				totalReconciled++
+			}
+		}
+	}
+	if totalReconciled > 0 {
+		c.logger.Info("SLA reconciliation completed", zap.Int("reconciled", totalReconciled))
+	}
+}
+
+// cveFromCsafDoc extracts the CVE from a stored CSAF document. Submit() is
+// per-CVE and the generator places it at vulnerabilities[].cve, so each
+// submission maps to exactly one CVE. Returns "" on any miss/parse failure
+// (defensive: a miss just means that submission won't drive reconciliation).
+func cveFromCsafDoc(doc models.JSONMap) string {
+	if doc == nil {
+		return ""
+	}
+	vulns, ok := doc["vulnerabilities"].([]interface{})
+	if !ok || len(vulns) == 0 {
+		return ""
+	}
+	first, ok := vulns[0].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	cve, _ := first["cve"].(string)
+	return cve
 }
 
 func (c *SlaCalculator) detectAndHandleBreaches(ctx context.Context) {
