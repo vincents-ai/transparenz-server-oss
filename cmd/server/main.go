@@ -83,7 +83,9 @@ func runServer() {
 	// Services
 	alertHub := services.NewAlertHub(logger)
 	signingService := services.NewSigningService(db, logger, "./keys")
-	csafGenerator := services.NewCSAFGeneratorWithOrg(vulnRepo, vulnFeedRepo, slaRepo, orgRepo).WithScanVulnerabilityRepository(scanVulnRepo)
+	csafGenerator := services.NewCSAFGeneratorWithOrg(vulnRepo, vulnFeedRepo, slaRepo, orgRepo).
+		WithScanVulnerabilityRepository(scanVulnRepo).
+		WithEnisaSubmissionRepository(enisaSubRepo)
 	enisaService := services.NewENISAService(orgRepo, enisaSubRepo, csafGenerator, nil, logger, 30*time.Second, 5*time.Second, 3)
 
 	scanWorker := services.NewScanWorker(

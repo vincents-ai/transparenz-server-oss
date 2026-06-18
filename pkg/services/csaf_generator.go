@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -142,6 +143,7 @@ type CSAFGenerator struct {
 	slaRepo      *repository.SlaTrackingRepository
 	orgRepo      *repository.OrganizationRepository
 	scanVulnRepo *repository.ScanVulnerabilityRepository
+	enisaSubRepo *repository.EnisaSubmissionRepository
 }
 
 func NewCSAFGeneratorWithOrg(
@@ -171,6 +173,15 @@ func (g *CSAFGenerator) WithScanVulnerabilityRepository(repo *repository.ScanVul
 	return g
 }
 
+// WithEnisaSubmissionRepository wires the ENISA submission repository used to
+// compute a monotonic CSAF Tracking.Version per advisory (count of prior
+// submissions for the same (org, CVE set)). Optional: when unset, version
+// stays "1" (current behavior). Separate setter keeps the constructor stable.
+func (g *CSAFGenerator) WithEnisaSubmissionRepository(repo *repository.EnisaSubmissionRepository) *CSAFGenerator {
+	g.enisaSubRepo = repo
+	return g
+}
+
 // csafTrackingNamespace is the fixed UUID v5 namespace used to derive stable
 // CSAF Tracking.IDs per (organization, CVE set). A fixed namespace keeps the
 // ID derivable and stable across regenerations and across server restarts.
@@ -191,6 +202,60 @@ func cvesOf(vulns []models.Vulnerability) []string {
 	cves := make([]string, 0, len(vulns))
 	for _, v := range vulns {
 		cves = append(cves, v.Cve)
+	}
+	return cves
+}
+
+// advisoryVersion returns the CSAF Tracking.Version for an advisory (org, CVE
+// set): the number of prior persisted ENISA submissions for the SAME CVE set,
+// plus one. When the submission repo is unwired or there are no priors, this
+// is "1". The current submission is persisted by Submit() AFTER generation, so
+// the count reflects prior versions only.
+func (g *CSAFGenerator) advisoryVersion(ctx context.Context, orgID uuid.UUID, cves []string) string {
+	if g.enisaSubRepo == nil {
+		return "1"
+	}
+	sortedCves := append([]string(nil), cves...)
+	sort.Strings(sortedCves)
+	target := strings.Join(sortedCves, ",")
+
+	subs, err := g.enisaSubRepo.List(ctx, 0, 0)
+	if err != nil {
+		return "1" // defensive: can't count priors -> default to first version
+	}
+	var priors int
+	for _, sub := range subs {
+		if sub.OrgID != orgID {
+			continue
+		}
+		subCves := cvesFromCsafDoc(sub.CsafDocument)
+		sort.Strings(subCves)
+		if len(subCves) > 0 && strings.Join(subCves, ",") == target {
+			priors++
+		}
+	}
+	return strconv.Itoa(priors + 1)
+}
+
+// cvesFromCsafDoc extracts ALL CVEs from a stored CSAF document's
+// vulnerabilities array. Defensive: returns nil on any miss/parse failure.
+func cvesFromCsafDoc(doc models.JSONMap) []string {
+	if doc == nil {
+		return nil
+	}
+	vulns, ok := doc["vulnerabilities"].([]interface{})
+	if !ok {
+		return nil
+	}
+	cves := make([]string, 0, len(vulns))
+	for _, v := range vulns {
+		m, ok := v.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if cve, _ := m["cve"].(string); cve != "" {
+			cves = append(cves, cve)
+		}
 	}
 	return cves
 }
@@ -239,13 +304,19 @@ func (g *CSAFGenerator) buildCSAFDocument(ctx context.Context, orgID uuid.UUID, 
 	doc.Document.CSAFVersion = "2.0"
 	doc.Document.Publisher.Name = "Transparenz Server"
 	doc.Document.Publisher.Category = "translator"
+	// Tracking.Version is monotonic per advisory (org, CVE set): the number of
+	// prior submissions for this same advisory plus one. When the submission
+	// repo isn't wired (or there are no priors), this is "1". CSAF wants the
+	// version to increment across revisions of the same stable Tracking.ID.
+	cves := cvesOf(vulns)
+	version := g.advisoryVersion(ctx, orgID, cves)
 	doc.Document.Tracking = Tracking{
 		ID:                 trackingID,
 		Status:             "final",
-		Version:            "1.0",
+		Version:            version,
 		CurrentReleaseDate: now,
 		InitialReleaseDate: now,
-		RevisionHistory:    []Revision{{Number: "1", Date: now, Description: "Initial advisory"}},
+		RevisionHistory:    []Revision{{Number: version, Date: now, Description: "Initial advisory"}},
 		Generator:          Generator{Engine: "transparenz-server", Date: now},
 	}
 

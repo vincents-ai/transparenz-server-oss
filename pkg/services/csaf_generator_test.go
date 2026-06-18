@@ -6,7 +6,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/vincents-ai/transparenz-server-oss/internal/testutil"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/middleware"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/repository"
 )
 
 func testOrgID() uuid.UUID {
@@ -374,4 +377,105 @@ func TestTrackingID_Stable(t *testing.T) {
 				ab.Document.Tracking.ID, ba.Document.Tracking.ID)
 		}
 	})
+}
+
+// TestCSAFVersion_IncrementsPerAdvisory verifies Tracking.Version is monotonic
+// per (org, CVE set): the first advisory is "1", and each prior persisted
+// submission for the same CVE set bumps it. Different CVE sets get independent
+// counters. (Migration-free: priors are counted by extracting CVEs from the
+// stored CSAF JSON.)
+func TestCSAFVersion_IncrementsPerAdvisory(t *testing.T) {
+	db := testutil.SetupTestDB(t, "organizations", "enisa_submissions")
+	subRepo := repository.NewEnisaSubmissionRepository(db)
+	orgA := testOrgID()
+	ctx := middleware.ContextWithOrgID(t.Context(), orgA)
+
+	mk := func(g *CSAFGenerator) *CSAFDocument {
+		return g.buildCSAFDocument(ctx, orgA, []models.Vulnerability{{Cve: "CVE-2024-V"}}, nil)
+	}
+
+	t.Run("nil repo -> version 1", func(t *testing.T) {
+		g := &CSAFGenerator{} // no enisaSubRepo wired
+		assert := docVersion(t, mk(g))
+		if assert != "1" {
+			t.Fatalf("expected version 1 with nil repo, got %s", assert)
+		}
+	})
+
+	t.Run("wired repo, no priors -> version 1", func(t *testing.T) {
+		g := &CSAFGenerator{enisaSubRepo: subRepo}
+		if v := docVersion(t, mk(g)); v != "1" {
+			t.Fatalf("expected version 1 with no priors, got %s", v)
+		}
+	})
+
+	t.Run("two prior same-CVE submissions -> version 3", func(t *testing.T) {
+		// Seed two prior submissions for the same org + CVE.
+		require := requireP(t)
+		require(subRepo.Create(ctx, orgA, &models.EnisaSubmission{
+			OrgID: orgA, SubmissionID: "v1", Status: "submitted",
+			CsafDocument: models.JSONMap{"vulnerabilities": []interface{}{map[string]interface{}{"cve": "CVE-2024-V"}}},
+		}))
+		require(subRepo.Create(ctx, orgA, &models.EnisaSubmission{
+			OrgID: orgA, SubmissionID: "v2", Status: "submitted",
+			CsafDocument: models.JSONMap{"vulnerabilities": []interface{}{map[string]interface{}{"cve": "CVE-2024-V"}}},
+		}))
+
+		g := &CSAFGenerator{enisaSubRepo: subRepo}
+		if v := docVersion(t, mk(g)); v != "3" {
+			t.Fatalf("expected version 3 after two priors, got %s", v)
+		}
+	})
+
+	t.Run("different CVE set not counted", func(t *testing.T) {
+		// A prior submission for a DIFFERENT cve must not bump this advisory.
+		require := requireP(t)
+		require(subRepo.Create(ctx, orgA, &models.EnisaSubmission{
+			OrgID: orgA, SubmissionID: "other", Status: "submitted",
+			CsafDocument: models.JSONMap{"vulnerabilities": []interface{}{map[string]interface{}{"cve": "CVE-9999-OTHER"}}},
+		}))
+		g := &CSAFGenerator{enisaSubRepo: subRepo}
+		// Two CVE-2024-V priors already seeded above -> still 3 (the OTHER one doesn't count).
+		if v := docVersion(t, mk(g)); v != "3" {
+			t.Fatalf("expected version 3 (other CVE not counted), got %s", v)
+		}
+	})
+}
+
+// TestCvesFromCsafDoc covers the defensive extractor used for version counting.
+func TestCvesFromCsafDoc(t *testing.T) {
+	got := cvesFromCsafDoc(models.JSONMap{"vulnerabilities": []interface{}{
+		map[string]interface{}{"cve": "CVE-A"},
+		map[string]interface{}{"cve": "CVE-B"},
+	}})
+	if len(got) != 2 || got[0] != "CVE-A" || got[1] != "CVE-B" {
+		t.Fatalf("expected [CVE-A CVE-B], got %v", got)
+	}
+	if cvesFromCsafDoc(nil) != nil {
+		t.Fatal("expected nil for nil doc")
+	}
+	if cvesFromCsafDoc(models.JSONMap{}) != nil {
+		t.Fatal("expected nil for missing vulnerabilities")
+	}
+	if cvesFromCsafDoc(models.JSONMap{"vulnerabilities": []interface{}{map[string]interface{}{ /* no cve */ }}}) != nil {
+		// entry without cve is skipped -> empty (non-nil) slice is fine; just ensure no panic
+	}
+}
+
+func docVersion(t *testing.T, doc *CSAFDocument) string {
+	t.Helper()
+	if doc == nil {
+		t.Fatal("nil document")
+	}
+	return doc.Document.Tracking.Version
+}
+
+func requireP(t *testing.T) func(error) {
+	t.Helper()
+	return func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
 }
