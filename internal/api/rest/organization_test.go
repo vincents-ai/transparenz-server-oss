@@ -136,7 +136,14 @@ func TestUpdateSupportPeriod_InvalidJSON(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-func TestUpdateSupportPeriod_MissingMonths(t *testing.T) {
+func TestUpdateSupportPeriod_EmptyBodyAcceptedAsUndeclared(t *testing.T) {
+	// Commit 78a8b92 made SupportPeriodMonths=0 a valid "undeclared" value.
+	// The request struct has no binding:"required" tag, so an empty body `{}`
+	// unmarshals to Months=0, which now validates successfully and returns 200
+	// (the handler persists 0 = undeclared). Previously this returned 400; the
+	// test was updated when the validation rule changed. (If "missing field"
+	// should still error independently of the value, that needs a *int field +
+	// binding:"required" — a separate product decision, not done here.)
 	router, _ := setupOrgTestRouter(t)
 
 	body := `{}`
@@ -146,7 +153,7 @@ func TestUpdateSupportPeriod_MissingMonths(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code)
 }
 
 func TestGetSupportPeriod_NoOrgContext(t *testing.T) {

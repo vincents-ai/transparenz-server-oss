@@ -37,10 +37,12 @@ func TestValidateSupportPeriod(t *testing.T) {
 		}
 	})
 
-	t.Run("zero months fails", func(t *testing.T) {
+	t.Run("zero months passes (undeclared is valid)", func(t *testing.T) {
+		// Commit 78a8b92 made 0 a valid "undeclared" value: a support period is
+		// either 0 (not declared) or >= 12 months. Intermediate values 1-11 fail.
 		org := &Organization{SupportPeriodMonths: 0}
-		if err := org.ValidateSupportPeriod(); err == nil {
-			t.Error("expected error for 0 months, got nil")
+		if err := org.ValidateSupportPeriod(); err != nil {
+			t.Errorf("expected no error for 0 months (undeclared), got %v", err)
 		}
 	})
 
