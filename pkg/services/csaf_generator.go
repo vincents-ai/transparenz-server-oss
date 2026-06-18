@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -170,6 +171,30 @@ func (g *CSAFGenerator) WithScanVulnerabilityRepository(repo *repository.ScanVul
 	return g
 }
 
+// csafTrackingNamespace is the fixed UUID v5 namespace used to derive stable
+// CSAF Tracking.IDs per (organization, CVE set). A fixed namespace keeps the
+// ID derivable and stable across regenerations and across server restarts.
+var csafTrackingNamespace = uuid.MustParse("e3b0c442-98fc-42c0-9c8e-7d2b4a1f0a55")
+
+// trackingIDFor returns a stable CSAF Tracking.ID for an organization and an
+// ordered set of CVEs. The CVE slice is sorted so the ID is independent of the
+// order vulnerabilities happen to be passed in; the same advisory content set
+// always produces the same ID. (Single-CVE advisories — the common case via
+// GeneratePerCVE — collapse to (orgID, cve).)
+func trackingIDFor(orgID uuid.UUID, cves []string) string {
+	sort.Strings(cves)
+	return uuid.NewSHA1(csafTrackingNamespace, append([]byte(orgID.String()+":"), []byte(strings.Join(cves, ","))...)).String()
+}
+
+// cvesOf extracts the (unsorted) CVE list from a vulnerability slice.
+func cvesOf(vulns []models.Vulnerability) []string {
+	cves := make([]string, 0, len(vulns))
+	for _, v := range vulns {
+		cves = append(cves, v.Cve)
+	}
+	return cves
+}
+
 func (g *CSAFGenerator) GeneratePerCVE(ctx context.Context, orgID uuid.UUID, cve string) (*CSAFDocument, error) {
 	vuln, err := g.vulnRepo.GetByCVE(ctx, cve)
 	if err != nil {
@@ -193,7 +218,13 @@ func (g *CSAFGenerator) GeneratePerCVE(ctx context.Context, orgID uuid.UUID, cve
 func (g *CSAFGenerator) buildCSAFDocument(ctx context.Context, orgID uuid.UUID, vulns []models.Vulnerability, feedMap map[string]*models.VulnerabilityFeed) *CSAFDocument {
 	doc := &CSAFDocument{}
 
-	trackingID := uuid.New().String()
+	// CSAF Tracking.ID must be STABLE across revisions of the same advisory
+	// (only the version increments). Previously uuid.New() produced a fresh ID
+	// on every regeneration, so the same CVE got unrelated advisory IDs over
+	// time — breaking downstream dedup and CSAF revision semantics. Derive a
+	// deterministic UUID v5 from (orgID, CVEs) so the same advisory content set
+	// always yields the same tracking ID.
+	trackingID := trackingIDFor(orgID, cvesOf(vulns))
 	now := time.Now().UTC().Format("2006-01-02T15:04:05Z")
 
 	doc.Distribution = Distribution{TLP: "WHITE"}

@@ -326,3 +326,52 @@ func TestCSAFProductStatus_GracefulDegradation(t *testing.T) {
 		t.Fatalf("expected wildcard CVSS product reference, got %+v", csafVuln.Scores)
 	}
 }
+
+// TestTrackingID_Stable verifies the CSAF Tracking.ID is deterministic per
+// (org, CVE): the same inputs always produce the same ID, different CVEs/orgs
+// produce different IDs, and multi-CVE inputs are order-independent. Regression
+// guard for replacing uuid.New() (which produced a fresh unrelated ID on every
+// regeneration, breaking CSAF revision semantics).
+func TestTrackingID_Stable(t *testing.T) {
+	orgA := uuid.MustParse("00000000-0000-0000-0000-00000000000a")
+	orgB := uuid.MustParse("00000000-0000-0000-0000-00000000000b")
+
+	t.Run("same org+cve -> same ID", func(t *testing.T) {
+		first := buildCSAFDocumentForTest(orgA, []models.Vulnerability{{Cve: "CVE-2024-1"}}, nil)
+		second := buildCSAFDocumentForTest(orgA, []models.Vulnerability{{Cve: "CVE-2024-1"}}, nil)
+		if first.Document.Tracking.ID == "" {
+			t.Fatal("expected non-empty tracking ID")
+		}
+		if first.Document.Tracking.ID != second.Document.Tracking.ID {
+			t.Fatalf("regenerating the same advisory must yield a stable Tracking.ID: %s vs %s",
+				first.Document.Tracking.ID, second.Document.Tracking.ID)
+		}
+	})
+
+	t.Run("different CVE -> different ID", func(t *testing.T) {
+		one := buildCSAFDocumentForTest(orgA, []models.Vulnerability{{Cve: "CVE-2024-1"}}, nil)
+		two := buildCSAFDocumentForTest(orgA, []models.Vulnerability{{Cve: "CVE-2024-2"}}, nil)
+		if one.Document.Tracking.ID == two.Document.Tracking.ID {
+			t.Fatal("different CVEs must produce different tracking IDs")
+		}
+	})
+
+	t.Run("different org -> different ID", func(t *testing.T) {
+		a := buildCSAFDocumentForTest(orgA, []models.Vulnerability{{Cve: "CVE-2024-1"}}, nil)
+		b := buildCSAFDocumentForTest(orgB, []models.Vulnerability{{Cve: "CVE-2024-1"}}, nil)
+		if a.Document.Tracking.ID == b.Document.Tracking.ID {
+			t.Fatal("different orgs must produce different tracking IDs")
+		}
+	})
+
+	t.Run("multi-CVE order-independent", func(t *testing.T) {
+		vulnsAB := []models.Vulnerability{{Cve: "CVE-2024-A"}, {Cve: "CVE-2024-B"}}
+		vulnsBA := []models.Vulnerability{{Cve: "CVE-2024-B"}, {Cve: "CVE-2024-A"}}
+		ab := buildCSAFDocumentForTest(orgA, vulnsAB, nil)
+		ba := buildCSAFDocumentForTest(orgA, vulnsBA, nil)
+		if ab.Document.Tracking.ID != ba.Document.Tracking.ID {
+			t.Fatalf("tracking ID must be independent of CVE order: %s vs %s",
+				ab.Document.Tracking.ID, ba.Document.Tracking.ID)
+		}
+	})
+}
