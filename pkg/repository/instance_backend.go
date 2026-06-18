@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -42,7 +43,15 @@ func (b *InstancePerOrgBackend) Provision(ctx context.Context, orgID uuid.UUID, 
 		return fmt.Errorf("open instance connection for org %s: %w", orgID, err)
 	}
 
-	if err := db.Exec("SELECT 1").Error; err != nil {
+	// Verify connectivity with a BOUNDED timeout derived from ctx. Previously
+	// this ran db.Exec("SELECT 1") with no deadline, so an unreachable DSN hung
+	// on DNS/TCP connect (OS default timeout, minutes). Worse, this whole call
+	// holds b.mu, so one bad DSN stalled provisioning/deprovisioning for EVERY
+	// org. If ctx already carries a deadline we honor it; otherwise we apply a
+	// sane default so the call can never block indefinitely.
+	verifyCtx, cancel := context.WithTimeout(ctx, instanceProvisionTimeout(ctx))
+	defer cancel()
+	if err := db.WithContext(verifyCtx).Exec("SELECT 1").Error; err != nil {
 		_ = closeDB(db)
 		return fmt.Errorf("verify instance connection for org %s: %w", orgID, err)
 	}
@@ -52,6 +61,22 @@ func (b *InstancePerOrgBackend) Provision(ctx context.Context, orgID uuid.UUID, 
 		zap.String("org_id", orgID.String()),
 	)
 	return nil
+}
+
+// instanceProvisionDefaultTimeout caps how long Provision's connectivity check
+// may run when the caller's context has no deadline. Bounds the worst case so a
+// misconfigured DSN cannot hold the backend mutex indefinitely.
+const instanceProvisionDefaultTimeout = 10 * time.Second
+
+// instanceProvisionTimeout returns the deadline to use for Provision's verify
+// query: the caller's existing deadline if any, otherwise the default cap.
+func instanceProvisionTimeout(ctx context.Context) time.Duration {
+	if dl, ok := ctx.Deadline(); ok {
+		if d := time.Until(dl); d > 0 {
+			return d
+		}
+	}
+	return instanceProvisionDefaultTimeout
 }
 
 func (b *InstancePerOrgBackend) Deprovision(ctx context.Context, orgID uuid.UUID) error {

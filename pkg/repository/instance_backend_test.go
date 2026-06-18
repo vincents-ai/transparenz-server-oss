@@ -8,6 +8,7 @@ package repository
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -44,7 +45,11 @@ func TestInstancePerOrgBackend_ProvisionAndGetConnection(t *testing.T) {
 	})
 
 	t.Run("Provision with bad DSN returns error", func(t *testing.T) {
-		err := b.Provision(ctx, orgID, "postgres://invalid:invalid@nonexistent:5432/bad")
+		// Use a connection-refused address (loopback port 1) so the verify query
+		// fails fast and deterministically instead of hanging on DNS/TCP to an
+		// unreachable host. (Provision now also bounds the verify with a ctx
+		// timeout, but a refused port makes this test environment-independent.)
+		err := b.Provision(ctx, orgID, "postgres://invalid:invalid@127.0.0.1:1/bad")
 		assert.Error(t, err)
 	})
 
@@ -63,6 +68,30 @@ func TestInstancePerOrgBackend_ProvisionAndGetConnection(t *testing.T) {
 			_ = sqlDB.Close()
 		}
 	})
+}
+
+// TestInstancePerOrgBackend_ProvisionHonorsContext verifies the production fix:
+// Provision must honor a cancelled/short context instead of blocking on the
+// network indefinitely (which previously held the backend mutex and hung the
+// whole pkg/repository suite).
+func TestInstancePerOrgBackend_ProvisionHonorsContext(t *testing.T) {
+	log := newTestLogger(t)
+	b := NewInstancePerOrgBackend(log)
+	orgID := uuid.New()
+
+	// A connectable-in-principle address that won't refuse instantly, paired
+	// with an already-cancelled context, must return promptly with an error.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	done := make(chan error, 1)
+	go func() { done <- b.Provision(ctx, orgID, "postgres://u:p@127.0.0.1:1/db") }()
+	select {
+	case err := <-done:
+		assert.Error(t, err, "Provision with a cancelled ctx must return an error, not block")
+	case <-time.After(5 * time.Second):
+		t.Fatal("Provision did not honor the cancelled context (blocked > 5s)")
+	}
 }
 
 func TestInstancePerOrgBackend_DoubleProvision(t *testing.T) {
