@@ -10,7 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vincents-ai/transparenz-server-oss/internal/testutil"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/middleware"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/repository"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
@@ -185,4 +187,45 @@ func TestComputeDeadline(t *testing.T) {
 		lo, hi := before.Add(SlaDeadlineCritical), after.Add(SlaDeadlineCritical)
 		assert.True(t, !got.Before(lo) && !got.After(hi), "clamped deadline should be ~now+window, got %v want [%v,%v]", got, lo, hi)
 	})
+}
+
+// TestSlaCalculator_OwnsPendingToViolatedTransition verifies the calculator
+// (not the alert service) flips overdue pending SLAs to "violated", and that
+// the alert service's notification query (ListUnnotifiedViolated) is gated by
+// notified_at so each breach is alerted exactly once.
+func TestSlaCalculator_OwnsPendingToViolatedTransition(t *testing.T) {
+	db := testutil.SetupTestDB(t, "sla_tracking")
+	repo := repository.NewSlaTrackingRepository(db)
+
+	orgID := uuid.New()
+	ctx := middleware.ContextWithOrgID(context.Background(), orgID)
+
+	// Insert an overdue-pending SLA directly.
+	overdue := &models.SlaTracking{
+		ID:       uuid.New(),
+		OrgID:    orgID,
+		Cve:      "CVE-2024-OVERDUE",
+		Status:   "pending",
+		Deadline: time.Now().Add(-2 * time.Hour), // past
+	}
+	require.NoError(t, db.Create(overdue).Error)
+
+	// ListOverdue should find it (the misnamed ListViolated used to).
+	got, err := repo.ListOverdue(ctx)
+	require.NoError(t, err)
+	require.Len(t, got, 1, "ListOverdue must return the overdue-pending SLA")
+
+	// The calculator flips it.
+	require.NoError(t, repo.UpdateStatus(ctx, overdue.ID, "violated"))
+
+	// ListUnnotifiedViolated now returns it (violated, not yet notified).
+	unnotified, err := repo.ListUnnotifiedViolated(ctx)
+	require.NoError(t, err)
+	require.Len(t, unnotified, 1, "violated SLA should appear as unnotified")
+
+	// After MarkNotified, it must NOT reappear (idempotent notification).
+	require.NoError(t, repo.MarkNotified(ctx, overdue.ID))
+	unnotified2, err := repo.ListUnnotifiedViolated(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, unnotified2, "notified SLA must not be returned again")
 }

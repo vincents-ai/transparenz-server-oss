@@ -425,16 +425,29 @@ func (c *SlaCalculator) detectAndHandleBreaches(ctx context.Context) {
 
 	for _, org := range orgs {
 		orgCtx := middleware.ContextWithOrgID(ctx, org.ID)
-		breached, err := c.slaRepo.ListViolated(orgCtx)
+		overdue, err := c.slaRepo.ListOverdue(orgCtx)
 		if err != nil {
-			c.logger.Error("failed to list breached SLAs",
+			c.logger.Error("failed to list overdue SLAs",
 				zap.String("org_id", org.ID.String()),
 				zap.Error(err),
 			)
 			continue
 		}
 
-		for _, sla := range breached {
+		for _, sla := range overdue {
+			// The calculator owns the pending -> violated state transition. The
+			// AlertService previously did this flip, splitting the SLA state
+			// machine across two services; now it lives here so the calculator
+			// is the single owner of SLA status.
+			if err := c.slaRepo.UpdateStatus(orgCtx, sla.ID, "violated"); err != nil {
+				c.logger.Error("failed to mark SLA violated",
+					zap.String("org_id", sla.OrgID.String()),
+					zap.String("sla_id", sla.ID.String()),
+					zap.Error(err),
+				)
+				continue
+			}
+			sla.Status = "violated"
 			c.logger.Warn("SLA breached",
 				zap.String("cve", sla.Cve),
 				zap.String("org_id", sla.OrgID.String()),

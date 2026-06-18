@@ -133,7 +133,11 @@ func (r *SlaTrackingRepository) CountApproaching(ctx context.Context, within tim
 	return count, err
 }
 
-func (r *SlaTrackingRepository) ListViolated(ctx context.Context) ([]models.SlaTracking, error) {
+// ListOverdue returns SLA rows whose deadline has passed but whose status is
+// still 'pending' — i.e. overdue-but-not-yet-marked-violated. (Formerly
+// ListViolated, which was misleading: these rows are NOT yet 'violated'.)
+// The SlaCalculator uses this to drive the pending->violated transition.
+func (r *SlaTrackingRepository) ListOverdue(ctx context.Context) ([]models.SlaTracking, error) {
 	var slas []models.SlaTracking
 	err := r.db.WithContext(ctx).
 		Scopes(TenantScope(ctx)).
@@ -141,4 +145,25 @@ func (r *SlaTrackingRepository) ListViolated(ctx context.Context) ([]models.SlaT
 		Order("deadline ASC").
 		Find(&slas).Error
 	return slas, err
+}
+
+// ListUnnotifiedViolated returns SLA rows already flipped to 'violated' that
+// the AlertService has not yet notified on (notified_at IS NULL). Used by the
+// alert service to sign a breach event and broadcast exactly once per SLA.
+func (r *SlaTrackingRepository) ListUnnotifiedViolated(ctx context.Context) ([]models.SlaTracking, error) {
+	var slas []models.SlaTracking
+	err := r.db.WithContext(ctx).
+		Scopes(TenantScope(ctx)).
+		Where("status = 'violated' AND notified_at IS NULL").
+		Order("deadline ASC").
+		Find(&slas).Error
+	return slas, err
+}
+
+// MarkNotified stamps notified_at on an SLA so ListUnnotifiedViolated won't
+// return it again. Idempotency guard for the AlertService breach notification.
+func (r *SlaTrackingRepository) MarkNotified(ctx context.Context, id uuid.UUID) error {
+	return r.db.WithContext(ctx).Model(&models.SlaTracking{}).
+		Where("id = ?", id).
+		Update("notified_at", time.Now().UTC()).Error
 }

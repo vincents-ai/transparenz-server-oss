@@ -138,9 +138,12 @@ func (s *AlertService) checkApproachingDeadlines(ctx context.Context, org models
 
 func (s *AlertService) checkViolations(ctx context.Context, org models.Organization, count *int) {
 	ctx = middleware.ContextWithOrgID(ctx, org.ID)
-	violated, err := s.slaRepo.ListViolated(ctx)
+	// The calculator now owns the pending->violated flip. The alert service only
+	// signs + broadcasts for rows already violated but not yet notified, then
+	// stamps notified_at so each SLA is alerted exactly once.
+	violated, err := s.slaRepo.ListUnnotifiedViolated(ctx)
 	if err != nil {
-		s.logger.Error("failed to list violated SLAs",
+		s.logger.Error("failed to list unnotified violated SLAs",
 			zap.String("org_id", org.ID.String()),
 			zap.Error(err),
 		)
@@ -148,15 +151,6 @@ func (s *AlertService) checkViolations(ctx context.Context, org models.Organizat
 	}
 
 	for _, sla := range violated {
-		if err := s.slaRepo.UpdateStatus(ctx, sla.ID, "violated"); err != nil {
-			s.logger.Error("failed to update SLA status",
-				zap.String("org_id", sla.OrgID.String()),
-				zap.String("sla_id", sla.ID.String()),
-				zap.Error(err),
-			)
-			continue
-		}
-
 		previousHash, err := s.eventRepo.GetLatestEventHash(ctx, sla.OrgID)
 		if err != nil {
 			s.logger.Warn("failed to get latest event hash, defaulting to empty",
@@ -192,6 +186,15 @@ func (s *AlertService) checkViolations(ctx context.Context, org models.Organizat
 			CVE:       sla.Cve,
 			Timestamp: time.Now(),
 		})
+		// Stamp notified_at LAST so a crash before this point re-alerts (safe)
+		// rather than silently skipping notification.
+		if err := s.slaRepo.MarkNotified(ctx, sla.ID); err != nil {
+			s.logger.Error("failed to mark SLA notified (may re-alert next tick)",
+				zap.String("org_id", sla.OrgID.String()),
+				zap.String("sla_id", sla.ID.String()),
+				zap.Error(err),
+			)
+		}
 		slaViolationsTotal.Inc()
 		*count++
 	}
