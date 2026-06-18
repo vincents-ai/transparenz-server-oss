@@ -41,12 +41,19 @@ type SlaCalculator struct {
 	vulnRepo     *repository.VulnerabilityRepository
 	slaRepo      *repository.SlaTrackingRepository
 	orgRepo      *repository.OrganizationRepository
-	enisaService *ENISAService
+	enisaService autoSubmitter
 	db           *gorm.DB
 	logger       *zap.Logger
 	tickInterval time.Duration
 	stopCh       chan struct{}
 	serverCtx    context.Context
+}
+
+// autoSubmitter is the subset of ENISAService the SLA calculator depends on.
+// It exists so the autosubmit path can be tested with a fake and so the
+// calculator depends on an abstraction rather than a concrete service.
+type autoSubmitter interface {
+	Submit(ctx context.Context, orgID uuid.UUID, cve string, meta models.JSONMap) (*models.EnisaSubmission, error)
 }
 
 func NewSlaCalculator(
@@ -455,40 +462,60 @@ func (c *SlaCalculator) applySlaAutomation(ctx context.Context, sla *models.SlaT
 			)
 		}
 	case SlaAutomationFullyAutomatic:
-		if err := c.db.WithContext(ctx).Model(sla).Update("status", "auto_submitted").Error; err != nil {
-			c.logger.Error("failed to set SLA to auto_submitted",
-				zap.String("id", sla.ID.String()),
-				zap.Error(err),
-			)
+		if c.enisaService == nil {
 			return
 		}
-		if c.enisaService != nil {
-			slaID := sla.ID
-			orgID := sla.OrgID
-			cve := sla.Cve
-			baseCtx := c.serverCtx
-			if baseCtx == nil {
-				baseCtx = context.Background()
-			}
-			go func() {
-				submitCtx, cancel := context.WithTimeout(baseCtx, 30*time.Second)
-				defer cancel()
-				_, err := c.enisaService.Submit(submitCtx, orgID, cve, nil)
-				if err != nil {
-					c.logger.Error("ENISA auto-submission failed",
-						zap.String("sla_id", slaID.String()),
-						zap.String("org_id", orgID.String()),
-						zap.String("cve", cve),
-						zap.Error(err),
-					)
-				} else {
-					c.logger.Info("ENISA auto-submission succeeded",
-						zap.String("sla_id", slaID.String()),
-						zap.String("org_id", orgID.String()),
-						zap.String("cve", cve),
-					)
-				}
-			}()
+		// Regulatory integrity: do NOT flip the SLA to "auto_submitted" before
+		// the submission is confirmed. The previous code flipped synchronously
+		// and then submitted in a detached goroutine, so a crash left the SLA
+		// falsely showing compliant. The EnisaSubmission row created by Submit
+		// (plus the ENISA retry worker) carries the durable intent; this status
+		// is flipped ONLY once Submit actually succeeds. On failure the SLA
+		// keeps its prior status so it is never a false positive.
+		slaID := sla.ID
+		orgID := sla.OrgID
+		cve := sla.Cve
+		baseCtx := c.serverCtx
+		if baseCtx == nil {
+			baseCtx = context.Background()
 		}
+		go func() {
+			submitCtx, cancel := context.WithTimeout(baseCtx, 30*time.Second)
+			defer cancel()
+			sub, err := c.enisaService.Submit(submitCtx, orgID, cve, nil)
+			if err != nil {
+				c.logger.Error("ENISA auto-submission failed; SLA left un-flipped (retry worker will retry the submission)",
+					zap.String("sla_id", slaID.String()),
+					zap.String("org_id", orgID.String()),
+					zap.String("cve", cve),
+					zap.Error(err),
+				)
+				return
+			}
+			// Submission confirmed — now record it on the SLA. A failure here is
+			// non-fatal: the EnisaSubmission row is the authoritative record.
+			if err := c.db.WithContext(context.Background()).Model(&models.SlaTracking{}).
+				Where("id = ?", slaID).
+				Update("status", "auto_submitted").Error; err != nil {
+				c.logger.Warn("ENISA submission succeeded but failed to flip SLA status",
+					zap.String("sla_id", slaID.String()),
+					zap.String("enisa_submission_id", submissionIDOr(sub)),
+					zap.Error(err),
+				)
+				return
+			}
+			c.logger.Info("ENISA auto-submission succeeded",
+				zap.String("sla_id", slaID.String()),
+				zap.String("org_id", orgID.String()),
+				zap.String("cve", cve),
+			)
+		}()
 	}
+}
+
+func submissionIDOr(sub *models.EnisaSubmission) string {
+	if sub == nil {
+		return ""
+	}
+	return sub.SubmissionID
 }

@@ -1,11 +1,18 @@
 package services
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/vincents-ai/transparenz-server-oss/internal/testutil"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
+	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 func TestSlaDeadlineConstants(t *testing.T) {
@@ -40,6 +47,81 @@ func TestSlaAutomationModeValuesDistinct(t *testing.T) {
 
 func TestSlaDeadlineCriticalIsLongerThanKEV(t *testing.T) {
 	assert.Greater(t, SlaDeadlineCritical, SlaDeadlineKEV)
+}
+
+// fakeAutoSubmitter is a test double for the autoSubmitter interface. It lets
+// the test control whether Submit succeeds or fails and observe the call.
+type fakeAutoSubmitter struct {
+	err        error
+	submission *models.EnisaSubmission
+	calledCVE  string
+	calledOrg  uuid.UUID
+}
+
+func (f *fakeAutoSubmitter) Submit(_ context.Context, orgID uuid.UUID, cve string, _ models.JSONMap) (*models.EnisaSubmission, error) {
+	f.calledCVE = cve
+	f.calledOrg = orgID
+	return f.submission, f.err
+}
+
+// TestApplySlaAutomation_FullyAutomatic_FlipsOnlyOnSuccess verifies the core
+// integrity fix from the regulatory review: the SLA must flip to
+// "auto_submitted" ONLY when the ENISA submission actually succeeds. A failed
+// submission must never leave the SLA in a false-compliant state.
+func TestApplySlaAutomation_FullyAutomatic_FlipsOnlyOnSuccess(t *testing.T) {
+	t.Run("success flips SLA to auto_submitted", func(t *testing.T) {
+		sla, calc, db := setupSlaAutomationTest(t)
+		calc.enisaService = &fakeAutoSubmitter{submission: &models.EnisaSubmission{SubmissionID: "CSAF-ok"}}
+
+		calc.applySlaAutomation(context.Background(), sla, SlaAutomationFullyAutomatic)
+
+		fake := calc.enisaService.(*fakeAutoSubmitter)
+		// The goroutine flips the status asynchronously; poll until Submit was
+		// called AND the status has landed.
+		require.Eventually(t, func() bool {
+			if fake.calledCVE != sla.Cve {
+				return false
+			}
+			var got models.SlaTracking
+			require.NoError(t, db.First(&got, "id = ?", sla.ID).Error)
+			return got.Status == "auto_submitted"
+		}, 2*time.Second, 10*time.Millisecond, "SLA must flip to auto_submitted after successful submission")
+	})
+
+	t.Run("failure leaves SLA status unchanged (no false compliant)", func(t *testing.T) {
+		sla, calc, db := setupSlaAutomationTest(t)
+		calc.enisaService = &fakeAutoSubmitter{err: errors.New("ENISA 503")}
+
+		calc.applySlaAutomation(context.Background(), sla, SlaAutomationFullyAutomatic)
+
+		// Give the goroutine a moment to run and fail.
+		time.Sleep(100 * time.Millisecond)
+		var got models.SlaTracking
+		require.NoError(t, db.First(&got, "id = ?", sla.ID).Error)
+		assert.Equal(t, "pending", got.Status, "failed submission must NOT flip SLA to auto_submitted")
+	})
+}
+
+// setupSlaAutomationTest builds an SlaCalculator backed by an in-memory sqlite
+// DB with the sla_tracking table and one pending SLA row. Returns the SLA, a
+// minimal calculator, and the DB handle for assertions.
+func setupSlaAutomationTest(t *testing.T) (*models.SlaTracking, *SlaCalculator, *gorm.DB) {
+	t.Helper()
+	db := testutil.SetupTestDB(t, "sla_tracking")
+
+	orgID := uuid.New()
+	sla := &models.SlaTracking{
+		ID:       uuid.New(),
+		OrgID:    orgID,
+		Cve:      "CVE-2024-AUTO",
+		Status:   "pending",
+		Deadline: time.Now().Add(24 * time.Hour),
+	}
+	require.NoError(t, db.Create(sla).Error)
+
+	logger := zap.NewNop()
+	calc := &SlaCalculator{db: db, logger: logger, serverCtx: context.Background()}
+	return sla, calc, db
 }
 
 func ptrTime(t time.Time) *time.Time { return &t }
