@@ -30,6 +30,14 @@ type Organization struct {
 	EnisaAPIEndpoint     string `json:"enisa_api_endpoint,omitempty"`
 	EnisaAPIKeyEncrypted string `json:"-" gorm:"column:enisa_api_key_encrypted"`
 
+	// NIS2 competent-authority routing metadata. MemberState is an ISO 3166-1
+	// alpha-2 EU member-state code (e.g. "DE", "FR"). EntityClass captures the
+	// NIS2 essential/important classification; Sector captures the regulated
+	// sector used by national competent authorities.
+	NIS2MemberState string `gorm:"column:nis2_member_state" json:"nis2_member_state,omitempty"`
+	NIS2Sector      string `gorm:"column:nis2_sector" json:"nis2_sector,omitempty"`
+	NIS2EntityClass string `gorm:"column:nis2_entity_class" json:"nis2_entity_class,omitempty"`
+
 	SupportPeriodMonths int        `gorm:"default:60" json:"support_period_months"`
 	SupportStartDate    *time.Time `json:"support_start_date,omitempty"`
 	SupportEndDate      *time.Time `json:"support_end_date,omitempty"`
