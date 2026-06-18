@@ -69,6 +69,15 @@ func (h *AlertHub) Subscribe(orgID string) (<-chan *Alert, func()) {
 			delete(h.clients[orgID], alertChan)
 		}
 		h.mu.Unlock()
+		// Close the channel so receivers blocked on <-ch (and the standard
+		// "range over channel" consume loop) unblock and observe end-of-stream.
+		// Without this, unsubscribe only stopped NEW broadcasts from reaching
+		// this subscriber but left existing receivers blocked forever — which
+		// hung TestAlertHub_Unsubscribe and, by extension, the whole
+		// pkg/services test suite (600s timeout). Safe to close: each
+		// Subscribe call mints a fresh channel with a single owner, and
+		// Broadcast guards sends with recover() against send-on-closed races.
+		close(alertChan)
 	}
 
 	return alertChan, unsubscribe
