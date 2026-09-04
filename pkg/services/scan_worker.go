@@ -7,8 +7,8 @@ package services
 
 import (
 	"context"
-	jsonutil "github.com/vincents-ai/transparenz-server-oss/pkg/util/jsonutil"
 	"fmt"
+	jsonutil "github.com/vincents-ai/transparenz-server-oss/pkg/util/jsonutil"
 	"sync"
 	"time"
 
@@ -268,6 +268,7 @@ func (w *ScanWorker) processScanWithVulnzMatcher(ctx context.Context, scan *mode
 			allScanVulns = append(allScanVulns, models.ScanVulnerability{
 				ScanID:               scan.ID,
 				VulnerabilityID:      vuln.ID,
+				OrgID:                scan.OrgID,
 				SbomComponentName:    comp.Name,
 				SbomComponentVersion: comp.Version,
 				SbomComponentType:    comp.Type,
