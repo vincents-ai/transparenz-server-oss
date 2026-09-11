@@ -71,6 +71,24 @@ func (r *ScanRepository) ListBySbomID(ctx context.Context, sbomID uuid.UUID, lim
 	return scans, err
 }
 
+// GetActiveBySbomID returns the most recent non-terminal scan (pending, running, or in_progress)
+// for a given SBOM. Returns nil if no active scan exists.
+func (r *ScanRepository) GetActiveBySbomID(ctx context.Context, sbomID uuid.UUID) (*models.Scan, error) {
+	var scan models.Scan
+	err := r.db.WithContext(ctx).
+		Scopes(TenantScope(ctx)).
+		Where("sbom_id = ? AND status IN ?", sbomID, []string{"pending", "running", "in_progress"}).
+		Order("created_at DESC").
+		First(&scan).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &scan, nil
+}
+
 // Cross-tenant: intentionally called from background workers without tenant context.
 func (r *ScanRepository) ListPending(ctx context.Context, limit int) ([]models.Scan, error) {
 	var scans []models.Scan

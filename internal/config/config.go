@@ -132,8 +132,14 @@ func LoadConfig() (*Config, error) {
 	if raw := viper.GetString("CORS_ALLOWED_ORIGINS"); raw != "" {
 		config.CORSAllowedOrigins = strings.Split(raw, ",")
 	}
+	// If no origins configured, allow common dev ports.
+	// Production deployments MUST set CORS_ALLOWED_ORIGINS explicitly.
 	if len(config.CORSAllowedOrigins) == 0 {
-		config.CORSAllowedOrigins = []string{"http://localhost:8080"}
+		config.CORSAllowedOrigins = []string{
+			"http://localhost:8080",
+			"http://localhost:5173",
+			"http://localhost:25173",
+		}
 	}
 
 	if err := validateConfig(&config); err != nil {

@@ -209,7 +209,7 @@ func TestScanWorker_HandleJob_InvalidPayload_ReturnsError(t *testing.T) {
 		Payload: json.RawMessage(`not-valid-json`),
 	}
 
-	err := w.handleJob(context.Background(), job)
+	err := w.ProcessJob(context.Background(), job)
 	if err == nil {
 		t.Fatal("expected error for invalid JSON payload, got nil")
 	}
@@ -459,7 +459,7 @@ func TestScanWorker_ProcessScanWithVulnzMatcher_NoMatcherCompletesViaScanRepo(t 
 	}
 }
 
-// TestScanWorker_HandleJob_ScanNotFound verifies that handleJob propagates
+// TestScanWorker_HandleJob_ScanNotFound verifies that ProcessJob propagates
 // a scan-not-found error from the scan repository.
 func TestScanWorker_HandleJob_ScanNotFound(t *testing.T) {
 	logger := testutil.TestLogger()
@@ -479,7 +479,7 @@ func TestScanWorker_HandleJob_ScanNotFound(t *testing.T) {
 		Payload: payload,
 	}
 
-	err := w.handleJob(context.Background(), job)
+	err := w.ProcessJob(context.Background(), job)
 	if err == nil {
 		t.Fatal("expected error when scan not found, got nil")
 	}

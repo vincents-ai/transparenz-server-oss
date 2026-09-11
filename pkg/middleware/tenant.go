@@ -148,3 +148,23 @@ func GetOrgUUIDFromContext(c *gin.Context) (uuid.UUID, error) {
 
 	return orgUUID, nil
 }
+
+// RequireOrgUUID extracts the organization UUID from the Gin context and
+// aborts with 401 Unauthorized if it's not available. This is a convenience
+// wrapper around GetOrgUUIDFromContext that eliminates the boilerplate
+// error-check pattern repeated across 30+ handlers.
+//
+// Usage:
+//
+//	orgUUID, ok := middleware.RequireOrgUUID(c)
+//	if !ok {
+//		return // handler already aborted
+//	}
+func RequireOrgUUID(c *gin.Context) (uuid.UUID, bool) {
+	orgUUID, err := GetOrgUUIDFromContext(c)
+	if err != nil {
+		api.Unauthorized(c, "organization context not available")
+		return uuid.Nil, false
+	}
+	return orgUUID, true
+}

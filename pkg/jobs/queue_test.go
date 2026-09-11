@@ -328,3 +328,133 @@ func TestClaimClaimsAvailableJob(t *testing.T) {
 	db.Where("id = ?", claimed.ID).First(&updated)
 	assert.Equal(t, "running", updated.Status)
 }
+
+func TestRecoverStale_ResetsRunningJobs(t *testing.T) {
+	db := setupTestDB(t)
+	q := testQueue(t, db)
+	ctx := context.Background()
+
+	// Create a job that has been running for 60 minutes (stale)
+	staleTime := time.Now().Add(-60 * time.Minute)
+	job := &Job{
+		ID:          uuid.New(),
+		Type:        "scan",
+		Payload:     json.RawMessage(`{}`),
+		Status:      "running",
+		MaxRetries:  3,
+		RetryCount:  0,
+		ScheduledAt: time.Now().Add(-70 * time.Minute),
+		StartedAt:   &staleTime,
+	}
+	require.NoError(t, db.Create(job).Error)
+
+	recovered, err := q.RecoverStale(ctx, "scan", 30*time.Minute)
+	require.NoError(t, err)
+	assert.Equal(t, 1, recovered)
+
+	var updated Job
+	db.Where("id = ?", job.ID).First(&updated)
+	assert.Equal(t, "pending", updated.Status)
+	assert.Equal(t, 1, updated.RetryCount)
+	assert.Nil(t, updated.StartedAt)
+	assert.Contains(t, updated.Error, "stale running job recovered")
+}
+
+func TestRecoverStale_MarksFailedWhenRetriesExhausted(t *testing.T) {
+	db := setupTestDB(t)
+	q := testQueue(t, db)
+	ctx := context.Background()
+
+	staleTime := time.Now().Add(-60 * time.Minute)
+	job := &Job{
+		ID:          uuid.New(),
+		Type:        "scan",
+		Payload:     json.RawMessage(`{}`),
+		Status:      "running",
+		MaxRetries:  3,
+		RetryCount:  2, // One more retry will exhaust it
+		ScheduledAt: time.Now().Add(-70 * time.Minute),
+		StartedAt:   &staleTime,
+	}
+	require.NoError(t, db.Create(job).Error)
+
+	recovered, err := q.RecoverStale(ctx, "scan", 30*time.Minute)
+	require.NoError(t, err)
+	assert.Equal(t, 1, recovered)
+
+	var updated Job
+	db.Where("id = ?", job.ID).First(&updated)
+	assert.Equal(t, "failed", updated.Status)
+	assert.Equal(t, 3, updated.RetryCount)
+	assert.NotNil(t, updated.CompletedAt)
+}
+
+func TestRecoverStale_IgnoresRecentRunningJobs(t *testing.T) {
+	db := setupTestDB(t)
+	q := testQueue(t, db)
+	ctx := context.Background()
+
+	recentTime := time.Now().Add(-5 * time.Minute)
+	job := &Job{
+		ID:          uuid.New(),
+		Type:        "scan",
+		Payload:     json.RawMessage(`{}`),
+		Status:      "running",
+		MaxRetries:  3,
+		ScheduledAt: time.Now().Add(-10 * time.Minute),
+		StartedAt:   &recentTime,
+	}
+	require.NoError(t, db.Create(job).Error)
+
+	recovered, err := q.RecoverStale(ctx, "scan", 30*time.Minute)
+	require.NoError(t, err)
+	assert.Equal(t, 0, recovered)
+
+	var unchanged Job
+	db.Where("id = ?", job.ID).First(&unchanged)
+	assert.Equal(t, "running", unchanged.Status)
+}
+
+func TestRecoverStale_IgnoresCompletedJobs(t *testing.T) {
+	db := setupTestDB(t)
+	q := testQueue(t, db)
+	ctx := context.Background()
+
+	oldTime := time.Now().Add(-60 * time.Minute)
+	job := &Job{
+		ID:          uuid.New(),
+		Type:        "scan",
+		Payload:     json.RawMessage(`{}`),
+		Status:      "completed",
+		MaxRetries:  3,
+		ScheduledAt: time.Now().Add(-70 * time.Minute),
+		StartedAt:   &oldTime,
+	}
+	require.NoError(t, db.Create(job).Error)
+
+	recovered, err := q.RecoverStale(ctx, "scan", 30*time.Minute)
+	require.NoError(t, err)
+	assert.Equal(t, 0, recovered)
+}
+
+func TestRecoverStale_IgnoresOtherJobTypes(t *testing.T) {
+	db := setupTestDB(t)
+	q := testQueue(t, db)
+	ctx := context.Background()
+
+	staleTime := time.Now().Add(-60 * time.Minute)
+	job := &Job{
+		ID:          uuid.New(),
+		Type:        "other_type",
+		Payload:     json.RawMessage(`{}`),
+		Status:      "running",
+		MaxRetries:  3,
+		ScheduledAt: time.Now().Add(-70 * time.Minute),
+		StartedAt:   &staleTime,
+	}
+	require.NoError(t, db.Create(job).Error)
+
+	recovered, err := q.RecoverStale(ctx, "scan", 30*time.Minute)
+	require.NoError(t, err)
+	assert.Equal(t, 0, recovered)
+}

@@ -54,7 +54,12 @@ func (r *SbomRepository) Count(ctx context.Context) (int64, error) {
 
 func (r *SbomRepository) List(ctx context.Context, limit, offset int) ([]models.SbomUpload, error) {
 	var uploads []models.SbomUpload
-	query := r.db.WithContext(ctx).Scopes(TenantScope(ctx)).Order("created_at DESC")
+	// Exclude document column to avoid loading potentially large JSON blobs.
+	// The document is only needed for GetByID/GetDocument calls.
+	query := r.db.WithContext(ctx).
+		Scopes(TenantScope(ctx)).
+		Select("id", "org_id", "filename", "format", "size_bytes", "sha256", "created_at").
+		Order("created_at DESC")
 	if limit > 0 {
 		query = query.Limit(limit).Offset(offset)
 	}
@@ -70,6 +75,23 @@ func (r *SbomRepository) ExistsBySHA256(ctx context.Context, sha256 string) (boo
 		Where("sha256 = ?", sha256).
 		Count(&count).Error
 	return count > 0, err
+}
+
+// GetBySHA256 returns an existing SBOM upload by its SHA-256 hash within the tenant scope.
+// Returns ErrSbomUploadNotFound if no matching record exists.
+func (r *SbomRepository) GetBySHA256(ctx context.Context, sha256 string) (*models.SbomUpload, error) {
+	var upload models.SbomUpload
+	err := r.db.WithContext(ctx).
+		Scopes(TenantScope(ctx)).
+		Where("sha256 = ?", sha256).
+		First(&upload).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrSbomUploadNotFound
+		}
+		return nil, err
+	}
+	return &upload, nil
 }
 
 func (r *SbomRepository) GetDocument(ctx context.Context, id uuid.UUID) ([]byte, error) {

@@ -86,7 +86,7 @@ func runServer() {
 	csafGenerator := services.NewCSAFGeneratorWithOrg(vulnRepo, vulnFeedRepo, slaRepo, orgRepo).
 		WithScanVulnerabilityRepository(scanVulnRepo).
 		WithEnisaSubmissionRepository(enisaSubRepo)
-	enisaService := services.NewENISAService(orgRepo, enisaSubRepo, csafGenerator, nil, logger, 30*time.Second, 5*time.Second, 3)
+	enisaService := services.NewENISAService(orgRepo, enisaSubRepo, eventRepo, csafGenerator, nil, alertHub, logger, cfg.ENISATimeout, cfg.ENISARetryInterval, cfg.ENISAMaxRetries)
 
 	scanWorker := services.NewScanWorker(
 		scanRepo, vulnRepo, vulnFeedRepo, sbomRepo,
@@ -96,6 +96,10 @@ func runServer() {
 	scanWorker.SetVulnzMatcher(vulnzMatcher)
 	go scanWorker.Start(context.Background())
 
+	// Background worker health monitoring
+	healthRegistry := services.NewHealthRegistry(logger)
+	healthRegistry.Register(scanWorker.TickWorker())
+
 	scanService := services.NewScanService(scanRepo, sbomRepo, scanWorker)
 
 	vexService := services.NewVEXService(vexStmtRepo, vexPubRepo, vulnFeedRepo, vulnRepo, db, logger, csafGenerator, enisaService)
@@ -103,6 +107,7 @@ func runServer() {
 
 	slaCalculator := services.NewSlaCalculator(vulnRepo, slaRepo, orgRepo, enisaService, db, logger, 0).
 		WithEnisaSubmissionRepository(enisaSubRepo)
+	healthRegistry.Register(slaCalculator.TickWorker())
 	go slaCalculator.Start(context.Background())
 
 	// Retry failed ENISA/CSIRT submissions (transient 5xx/429/network errors).
@@ -161,11 +166,16 @@ func runServer() {
 		c.JSON(http.StatusOK, gin.H{"type": "about:blank", "title": "OK", "status": 200, "detail": "service is healthy"})
 	})
 
-		router.GET("/readyz", func(c *gin.Context) {
+	router.GET("/readyz", func(c *gin.Context) {
 		sqlDB, err := db.DB()
 		if err != nil || sqlDB.Ping() != nil {
 			c.Header("Content-Type", "application/problem+json")
 			c.JSON(http.StatusServiceUnavailable, gin.H{"type": "about:blank", "title": "Not Ready", "status": 503, "detail": "database disconnected"})
+			return
+		}
+		if !healthRegistry.IsHealthy() {
+			c.Header("Content-Type", "application/problem+json")
+			c.JSON(http.StatusServiceUnavailable, healthRegistry.Summary())
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "service is ready"})

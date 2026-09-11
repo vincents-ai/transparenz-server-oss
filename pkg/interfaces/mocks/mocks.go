@@ -95,6 +95,21 @@ func (mr *MockScanRepositoryMockRecorder) List(ctx, limit, offset interface{}) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockScanRepository)(nil).List), ctx, limit, offset)
 }
 
+// GetActiveBySbomID mocks base method.
+func (m *MockScanRepository) GetActiveBySbomID(ctx context.Context, sbomID uuid.UUID) (*models.Scan, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetActiveBySbomID", ctx, sbomID)
+	ret0, _ := ret[0].(*models.Scan)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetActiveBySbomID indicates an expected call of GetActiveBySbomID.
+func (mr *MockScanRepositoryMockRecorder) GetActiveBySbomID(ctx, sbomID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveBySbomID", reflect.TypeOf((*MockScanRepository)(nil).GetActiveBySbomID), ctx, sbomID)
+}
+
 // MockSbomRepository is a mock of SbomRepository interface.
 type MockSbomRepository struct {
 	ctrl     *gomock.Controller

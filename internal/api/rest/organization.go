@@ -30,7 +30,7 @@ func NewOrganizationHandler(orgRepo *repository.OrganizationRepository, logger *
 
 // UpdateSupportPeriodRequest holds the number of months for support period updates.
 type UpdateSupportPeriodRequest struct {
-	Months int `json:"months"`
+	Months *int `json:"months" binding:"required"`
 }
 
 func (h *OrganizationHandler) UpdateSupportPeriod(c *gin.Context) {
@@ -40,9 +40,8 @@ func (h *OrganizationHandler) UpdateSupportPeriod(c *gin.Context) {
 		return
 	}
 
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization context not available")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 
@@ -52,13 +51,13 @@ func (h *OrganizationHandler) UpdateSupportPeriod(c *gin.Context) {
 		return
 	}
 
-	org := &models.Organization{SupportPeriodMonths: req.Months}
+	org := &models.Organization{SupportPeriodMonths: *req.Months}
 	if err := org.ValidateSupportPeriod(); err != nil {
 		api.BadRequest(c, err.Error())
 		return
 	}
 
-	if err := h.orgRepo.UpdateSupportPeriod(ctx, orgUUID, req.Months); err != nil {
+	if err := h.orgRepo.UpdateSupportPeriod(ctx, orgUUID, *req.Months); err != nil {
 		h.logger.Error("failed to update support period", zap.Error(err))
 		api.InternalError(c, "failed to update support period")
 		return
@@ -89,9 +88,8 @@ func (h *OrganizationHandler) GetSupportPeriod(c *gin.Context) {
 		return
 	}
 
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization context not available")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 

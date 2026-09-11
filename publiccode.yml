@@ -1,0 +1,130 @@
+publiccodeYmlVersion: "0.4"
+
+name: "transparenz-server"
+url: "https://github.com/vincents-ai/transparenz-server-oss"
+softwareVersion: "0.1.0"
+releaseDate: "2026-05-21"
+
+platforms:
+  - linux
+
+categories:
+  - it-security
+  - compliance-management
+  - regulations-and-directives
+  - it-management
+
+developmentStatus: beta
+softwareType: "standalone/backend"
+
+intendedAudience:
+  countries:
+    - AT
+    - BE
+    - BG
+    - CY
+    - CZ
+    - DE
+    - DK
+    - EE
+    - ES
+    - FI
+    - FR
+    - GR
+    - HR
+    - HU
+    - IE
+    - IT
+    - LT
+    - LU
+    - LV
+    - MT
+    - NL
+    - PL
+    - PT
+    - RO
+    - SE
+    - SI
+    - SK
+  scope:
+    - defence
+    - education
+    - emergency-services
+    - energy
+    - finance-and-economic-development
+    - government
+    - healthcare
+    - infrastructures
+    - justice
+    - local-authorities
+    - manufacturing
+    - research
+    - science-and-technology
+    - security
+    - transportation
+
+localisation:
+  localisationReady: true
+  availableLanguages:
+    - en
+
+description:
+  en:
+    localisedName: "transparenz-server"
+    shortDescription: >
+      Open-source EU CRA/NIS2 compliance reporting backend for SBOM management,
+      CSAF 2.0 advisory generation, vulnerability tracking, and SLA enforcement.
+    longDescription: >
+      transparenz-server is the AGPL-3.0 licensed, open-source edition of the
+      Transparenz compliance server. It provides core EU Cyber Resilience Act
+      (CRA) and NIS2 Directive compliance functionality as a Go backend
+      platform.
+
+      SBOM management — upload CycloneDX or SPDX SBOMs, scan for known
+      vulnerabilities via VulnzMatcher-based scanning, and track vulnerability
+      status over time with per-component GRC framework mappings.
+
+      CSAF 2.0 advisories — generate and distribute security advisories per
+      the Common Security Advisory Framework, with public provider metadata
+      endpoints at /.well-known/csaf/ for aggregator consumption.
+
+      SLA tracking — automated deadline enforcement: 24 hours for exploited
+      vulnerabilities (CRA Article 10), 72 hours for critical severity, with
+      real-time SSE alerts for approaching and breached deadlines.
+
+      VEX lifecycle — create, approve, publish, and rotate Vulnerability
+      Exploitability eXchange statements with full state machine enforcement.
+
+      Coordinated disclosure — upstream notification workflow with 90-day
+      response window and SLA compliance tracking.
+
+      Audit trail — all compliance events are tracked and verifiable. The
+      commercial edition adds Ed25519 cryptographic signing with a SHA-256
+      hash chain.
+
+      Multi-tenant isolation — row-level security (RLS) and schema-per-organisation
+      isolation via PostgreSQL. The commercial edition adds instance-per-organisation
+      for data residency requirements.
+
+      ENISA read-only — list and download ENISA submissions. The commercial
+      edition adds the full ENISA EVD API submission pipeline with retry logic.
+
+      Prometheus metrics endpoint with basic auth for operational monitoring.
+
+      This repository is also the single source of truth for shared code
+      (models, repositories, services, middleware, interfaces, jobs) used by
+      the commercial edition, which imports them via Go module dependency.
+    features:
+      - "EU Cyber Resilience Act (CRA) and NIS2 compliance reporting"
+      - "SBOM upload, scanning, and vulnerability tracking"
+      - "CSAF 2.0 advisory generation with public provider endpoints"
+      - "SLA tracking: 24h exploited (Art. 10), 72h critical"
+      - "VEX lifecycle management (draft, approve, publish)"
+      - "Coordinated disclosure with 90-day response window"
+      - "Compliance event audit trail with verification"
+      - "Multi-tenant isolation: RLS and schema-per-org"
+      - "Real-time SSE vulnerability and SLA alerts"
+      - "Prometheus /metrics endpoint with basic auth"
+
+legal:
+  license: AGPL-3.0-or-later

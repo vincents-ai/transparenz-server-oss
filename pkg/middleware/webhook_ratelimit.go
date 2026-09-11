@@ -103,7 +103,11 @@ func WebhookRateLimitMiddleware(limiter *KeyRateLimiter, contextKey string) gin.
 			key = c.ClientIP()
 		}
 
+		// Set rate limit headers for client visibility
+		c.Header("X-RateLimit-Limit", fmt.Sprintf("%d", limiter.burst))
+
 		if !limiter.Allow(key) {
+			c.Header("Retry-After", "10")
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"type":   "about:blank",
 				"title":  "Too Many Requests",

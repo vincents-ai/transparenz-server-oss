@@ -8,11 +8,9 @@ package repository
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/vincents-ai/transparenz-server-oss/pkg/middleware"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
 	"gorm.io/gorm"
 )
@@ -58,15 +56,8 @@ func (r *OrganizationRepository) GetBySlug(ctx context.Context, slug string) (*m
 }
 
 func (r *OrganizationRepository) Update(ctx context.Context, org *models.Organization) error {
-	// Enforce self-scope: only allow updating the organization whose ID matches
-	// the tenant context. This prevents cross-tenant updates when org IDs differ
-	// from the authenticated org context.
-	orgID, err := middleware.GetOrgIDFromContext(ctx)
-	if err == nil && orgID != "" {
-		parsed, parseErr := uuid.Parse(orgID)
-		if parseErr == nil && parsed != org.ID {
-			return fmt.Errorf("self-scope violation: cannot update organization %s under context of organization %s", org.ID, parsed)
-		}
+	if err := SelfScopeGuard(ctx, org.ID); err != nil {
+		return err
 	}
 	return r.db.WithContext(ctx).Save(org).Error
 }
@@ -83,6 +74,14 @@ func (r *OrganizationRepository) ListAll(ctx context.Context) ([]models.Organiza
 	var orgs []models.Organization
 	err := r.db.WithContext(ctx).Find(&orgs).Error
 	return orgs, err
+}
+
+// CountAll returns the total number of organizations.
+// Used by the license enforcer to check max_orgs limits.
+func (r *OrganizationRepository) CountAll(ctx context.Context) (int, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&models.Organization{}).Count(&count).Error
+	return int(count), err
 }
 
 func (r *OrganizationRepository) GetByTier(ctx context.Context, tier string) ([]models.Organization, error) {
@@ -142,6 +141,13 @@ func (r *OrganizationRepository) GetSupportPeriodStatus(ctx context.Context, org
 	}
 
 	totalDuration := org.SupportEndDate.Sub(*org.SupportStartDate)
+	if totalDuration.Seconds() == 0 {
+		// months=0 means immediately unsupported
+		status.PercentageElapsed = 100.0
+		status.MonthsRemaining = 0
+		status.DaysRemaining = 0
+		return status, nil
+	}
 	elapsed := now.Sub(*org.SupportStartDate)
 	remaining := org.SupportEndDate.Sub(now)
 

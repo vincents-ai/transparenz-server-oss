@@ -48,6 +48,7 @@ type SlaCalculator struct {
 	tickInterval time.Duration
 	stopCh       chan struct{}
 	serverCtx    context.Context
+	tick         *TickWorker
 }
 
 // autoSubmitter is the subset of ENISAService the SLA calculator depends on.
@@ -69,7 +70,7 @@ func NewSlaCalculator(
 	if tickInterval == 0 {
 		tickInterval = 1 * time.Minute
 	}
-	return &SlaCalculator{
+	calc := &SlaCalculator{
 		vulnRepo:     vulnRepo,
 		slaRepo:      slaRepo,
 		orgRepo:      orgRepo,
@@ -79,6 +80,8 @@ func NewSlaCalculator(
 		tickInterval: tickInterval,
 		stopCh:       make(chan struct{}),
 	}
+	calc.tick = NewTickWorker("sla_calculator", tickInterval)
+	return calc
 }
 
 // WithEnisaSubmissionRepository wires the ENISA submission repository used by
@@ -91,6 +94,9 @@ func (c *SlaCalculator) WithEnisaSubmissionRepository(repo *repository.EnisaSubm
 	return c
 }
 
+// TickWorker returns the embedded health reporter for this calculator.
+func (c *SlaCalculator) TickWorker() *TickWorker { return c.tick }
+
 func (c *SlaCalculator) Start(ctx context.Context) {
 	c.serverCtx = ctx
 	c.logger.Info("starting SLA calculator")
@@ -101,6 +107,7 @@ func (c *SlaCalculator) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
+			c.tick.RecordTick(0)
 			c.CalculateDeadlines(ctx)
 		case <-c.stopCh:
 			c.logger.Info("SLA calculator stopped")
@@ -206,6 +213,21 @@ func (c *SlaCalculator) processPerCveMode(
 	}
 	for _, v := range criticalVulns {
 		vulnMap[v.Cve] = true
+	}
+
+	// Build a lookup map for CVE → DiscoveredAt so deadlines are
+	// calculated from the CVE publication date, not from when the
+	// SLA calculator happens to run. This prevents SLA erosion.
+	vulnDiscoveredAt := make(map[string]time.Time)
+	for _, v := range kevVulns {
+		if !v.DiscoveredAt.IsZero() {
+			vulnDiscoveredAt[v.Cve] = v.DiscoveredAt
+		}
+	}
+	for _, v := range criticalVulns {
+		if !v.DiscoveredAt.IsZero() {
+			vulnDiscoveredAt[v.Cve] = v.DiscoveredAt
+		}
 	}
 
 	for cve := range vulnMap {
@@ -318,6 +340,19 @@ func (c *SlaCalculator) processPerSbomMode(
 		}
 	}
 
+	// Build CVE → DiscoveredAt lookup for correct SLA deadlines.
+	vulnDiscoveredAtSbom := make(map[string]time.Time)
+	for _, v := range kevVulns {
+		if !v.DiscoveredAt.IsZero() {
+			vulnDiscoveredAtSbom[v.Cve] = v.DiscoveredAt
+		}
+	}
+	for _, v := range criticalVulns {
+		if !v.DiscoveredAt.IsZero() {
+			vulnDiscoveredAtSbom[v.Cve] = v.DiscoveredAt
+		}
+	}
+
 	for sbomID, vulns := range sbomVulnMap {
 		for cve := range vulns {
 			exists, err := c.slaRepo.ExistsByCveAndSbom(ctx, cve, &sbomID)
@@ -349,9 +384,9 @@ func (c *SlaCalculator) processPerSbomMode(
 			if !isKEV {
 				for _, v := range criticalVulns {
 					if v.Cve == cve && v.SbomID != nil && *v.SbomID == sbomID {
-					matched = v
-					break
-				}
+						matched = v
+						break
+					}
 				}
 			}
 

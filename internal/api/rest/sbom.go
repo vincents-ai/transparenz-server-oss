@@ -23,6 +23,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/vincents-ai/transparenz-server-oss/internal/api"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/middleware"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
@@ -30,6 +31,16 @@ import (
 	"github.com/vincents-ai/transparenz-server-oss/pkg/services"
 	"go.uber.org/zap"
 )
+
+var sbomUploadSizeBytes = prometheus.NewHistogram(prometheus.HistogramOpts{
+	Name:    "sbom_upload_size_bytes",
+	Help:    "Size of uploaded SBOM files in bytes.",
+	Buckets: []float64{1024, 10 * 1024, 100 * 1024, 1024 * 1024, 5 * 1024 * 1024, 10 * 1024 * 1024},
+})
+
+func init() {
+	prometheus.MustRegister(sbomUploadSizeBytes)
+}
 
 // SbomHandler handles SBOM upload, listing, and retrieval requests.
 type SbomHandler struct {
@@ -61,9 +72,8 @@ type UploadResponse struct {
 }
 
 func (h *SbomHandler) Upload(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization ID not found in context")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 
@@ -106,6 +116,7 @@ func (h *SbomHandler) Upload(c *gin.Context) {
 
 	limited := io.LimitReader(file, h.maxSize+1)
 	written, err := io.Copy(tmpFile, limited)
+	sbomUploadSizeBytes.Observe(float64(written))
 	if err != nil {
 		if closeErr := tmpFile.Close(); closeErr != nil {
 			zap.L().Warn("failed to close temp file", zap.Error(closeErr))
@@ -157,12 +168,20 @@ func (h *SbomHandler) Upload(c *gin.Context) {
 		return
 	}
 	if exists {
-		c.Header("Content-Type", "application/problem+json")
-		c.AbortWithStatusJSON(http.StatusConflict, api.ProblemDetail{
-			Type:   api.ErrBadRequest,
-			Title:  "Conflict",
-			Status: http.StatusConflict,
-			Detail: "SBOM with identical content already exists",
+		// Idempotent: return the existing SBOM record with 200 OK
+		existing, err := h.sbomRepo.GetBySHA256(ctx, sha256Str)
+		if err != nil {
+			api.InternalError(c, "failed to retrieve existing SBOM")
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"id":         existing.ID,
+			"filename":   existing.Filename,
+			"format":     existing.Format,
+			"size_bytes": existing.SizeBytes,
+			"sha256":     existing.SHA256,
+			"created_at": existing.CreatedAt,
+			"message":    "SBOM with identical content already exists",
 		})
 		return
 	}
@@ -209,9 +228,8 @@ func (h *SbomHandler) Upload(c *gin.Context) {
 }
 
 func (h *SbomHandler) List(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization ID not found in context")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 
@@ -254,9 +272,8 @@ func (h *SbomHandler) List(c *gin.Context) {
 }
 
 func (h *SbomHandler) GetByID(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization ID not found in context")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 
@@ -282,9 +299,8 @@ func (h *SbomHandler) GetByID(c *gin.Context) {
 }
 
 func (h *SbomHandler) Download(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization ID not found in context")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 
@@ -330,9 +346,8 @@ func (h *SbomHandler) Download(c *gin.Context) {
 }
 
 func (h *SbomHandler) Delete(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization ID not found in context")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 

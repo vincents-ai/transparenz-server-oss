@@ -55,7 +55,7 @@ func GreenboneAuthMiddleware(db *gorm.DB, updater *LastUsedAtUpdater) gin.Handle
 			body, _ := io.ReadAll(c.Request.Body)
 			c.Request.Body = io.NopCloser(bytes.NewReader(body))
 			if err := VerifyWebhookSignature(body, webhook.SigningSecret, signature, timestamp); err != nil {
-				api.Unauthorized(c, "webhook signature verification failed: "+err.Error())
+				api.Unauthorized(c, "webhook signature verification failed")
 				return
 			}
 		}

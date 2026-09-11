@@ -305,9 +305,8 @@ func (h *ComplianceHandler) ReportExploitedVulnerability(c *gin.Context) {
 		return
 	}
 
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization context not available")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 

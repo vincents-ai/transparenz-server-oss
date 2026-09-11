@@ -57,9 +57,8 @@ type CreateScanResponse struct {
 }
 
 func (h *ScanHandler) CreateScan(c *gin.Context) {
-	orgID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization ID not found in context")
+	orgID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 
@@ -96,9 +95,8 @@ func (h *ScanHandler) CreateScan(c *gin.Context) {
 }
 
 func (h *ScanHandler) ListScans(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization ID not found in context")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 
@@ -142,9 +140,8 @@ func (h *ScanHandler) ListScans(c *gin.Context) {
 // enriched with CVE identifiers and severity from the vulnerability feed.
 // Only scans belonging to the caller's organisation are accessible.
 func (h *ScanHandler) GetScanVulnerabilities(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization ID not found in context")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 

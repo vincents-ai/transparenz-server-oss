@@ -7,17 +7,35 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	jsonutil "github.com/vincents-ai/transparenz-server-oss/pkg/util/jsonutil"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/jobs"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/middleware"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
 	"go.uber.org/zap"
 )
+
+var (
+	scanDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "vulnerability_scan_duration_seconds",
+		Help:    "Time taken to process a vulnerability scan.",
+		Buckets: prometheus.DefBuckets,
+	})
+
+	scanTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "vulnerability_scans_total",
+		Help: "Total vulnerability scans by status.",
+	}, []string{"status"})
+)
+
+func init() {
+	prometheus.MustRegister(scanDuration, scanTotal)
+}
 
 type scanJobPayload struct {
 	ScanID uuid.UUID `json:"scan_id"`
@@ -36,6 +54,7 @@ type ScanWorker struct {
 	queue        *jobs.JobQueue
 	logger       *zap.Logger
 	enrichment   *EnrichmentService
+	tick         *TickWorker
 	mu           sync.RWMutex
 }
 
@@ -49,7 +68,7 @@ func NewScanWorker(
 	enrichment *EnrichmentService,
 	scanVulnRepo workerScanVulnerabilityRepository,
 ) *ScanWorker {
-	return &ScanWorker{
+	sw := &ScanWorker{
 		scanRepo:     scanRepo,
 		vulnRepo:     vulnRepo,
 		feedRepo:     feedRepo,
@@ -59,7 +78,12 @@ func NewScanWorker(
 		enrichment:   enrichment,
 		scanVulnRepo: scanVulnRepo,
 	}
+	sw.tick = NewTickWorker("scan_worker", 0) // interval set by job queue poll
+	return sw
 }
+
+// TickWorker returns the embedded health reporter for this worker.
+func (w *ScanWorker) TickWorker() *TickWorker { return w.tick }
 
 func (w *ScanWorker) SetGRCMappingRepository(repo workerGRCMappingRepository) {
 	w.mu.Lock()
@@ -91,13 +115,18 @@ func (w *ScanWorker) EnqueueScan(ctx context.Context, scanID, orgID, sbomID uuid
 	return nil
 }
 
+// Start launches a single scan worker goroutine. For parallel processing,
+// commercial edition wraps this with ScanWorkerPool which calls ProcessJob.
 func (w *ScanWorker) Start(ctx context.Context) {
-	w.queue.StartWorker(ctx, "scan", w.handleJob)
+	w.queue.StartWorker(ctx, "scan", w.ProcessJob)
 }
 
-func (w *ScanWorker) handleJob(ctx context.Context, job *jobs.Job) error {
+// ProcessJob handles a single scan job. Exported so the commercial worker pool
+// can call it directly for each claimed job without re-queueing.
+func (w *ScanWorker) ProcessJob(ctx context.Context, job *jobs.Job) error {
+	w.tick.RecordTick(0)
 	var payload scanJobPayload
-	if err := json.Unmarshal(job.Payload, &payload); err != nil {
+	if err := jsonutil.Unmarshal(job.Payload, &payload); err != nil {
 		w.logger.Error("failed to unmarshal scan job payload",
 			zap.String("job_id", job.ID.String()),
 			zap.Error(err),
@@ -107,6 +136,11 @@ func (w *ScanWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 
 	scanCtx := middleware.ContextWithOrgID(ctx, payload.OrgID)
 
+	start := time.Now()
+	defer func() {
+		scanDuration.Observe(time.Since(start).Seconds())
+	}()
+
 	scan, err := w.scanRepo.GetByID(scanCtx, payload.ScanID)
 	if err != nil {
 		return fmt.Errorf("failed to load scan %s: %w", payload.ScanID, err)
@@ -114,9 +148,12 @@ func (w *ScanWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 
 	if err := w.processScan(scanCtx, scan); err != nil {
 		_ = w.scanRepo.UpdateStatus(scanCtx, scan.ID, "failed")
+		scanTotal.WithLabelValues("failed").Inc()
 		return err
 	}
 
+	scanTotal.WithLabelValues("completed").Inc()
+	w.tick.RecordTick(1)
 	return nil
 }
 
@@ -174,7 +211,7 @@ func (w *ScanWorker) processScanWithVulnzMatcher(ctx context.Context, scan *mode
 		return nil
 	}
 
-	components := parseSBOMComponents(sbomDoc)
+	components := ParseSBOMComponents(sbomDoc)
 	if len(components) == 0 {
 		w.logger.Warn("no components parsed from SBOM, skipping vulnz match")
 		scan.Status = "completed"
@@ -196,6 +233,8 @@ func (w *ScanWorker) processScanWithVulnzMatcher(ctx context.Context, scan *mode
 	}
 
 	var vulnCount int
+	var allScanVulns []models.ScanVulnerability
+
 	for _, match := range matches {
 		vuln := &models.Vulnerability{
 			OrgID:        scan.OrgID,
@@ -226,9 +265,10 @@ func (w *ScanWorker) processScanWithVulnzMatcher(ctx context.Context, scan *mode
 			if !ok {
 				comp = SBOMComponent{Name: match.PackageName, Version: match.PackageVersion, Type: match.PackageType}
 			}
-			sv := []models.ScanVulnerability{{
+			allScanVulns = append(allScanVulns, models.ScanVulnerability{
 				ScanID:               scan.ID,
 				VulnerabilityID:      vuln.ID,
+				OrgID:                scan.OrgID,
 				SbomComponentName:    comp.Name,
 				SbomComponentVersion: comp.Version,
 				SbomComponentType:    comp.Type,
@@ -236,41 +276,45 @@ func (w *ScanWorker) processScanWithVulnzMatcher(ctx context.Context, scan *mode
 				MatchConfidence:      "matched",
 				FeedSource:           match.Source,
 				MatchedAt:            time.Now(),
-			}}
-			if err := w.scanVulnRepo.CreateBatch(ctx, sv); err != nil {
-				w.logger.Error("failed to create scan vulnerability record", zap.Error(err))
-			}
+			})
 		}
+	}
 
-		w.mu.RLock()
-		enrichSvc := w.enrichment
-		grcRepo := w.grcRepo
-		w.mu.RUnlock()
+	// Batch INSERT all scan_vulnerabilities in one query
+	if w.scanVulnRepo != nil && len(allScanVulns) > 0 {
+		if err := w.scanVulnRepo.CreateBatch(ctx, allScanVulns); err != nil {
+			w.logger.Error("failed to batch create scan vulnerability records", zap.Error(err))
+		}
+	}
 
-		if enrichSvc != nil && enrichSvc.IsReady() && grcRepo != nil {
+	w.mu.RLock()
+	enrichSvc := w.enrichment
+	grcRepo := w.grcRepo
+	w.mu.RUnlock()
+
+	if enrichSvc != nil && enrichSvc.IsReady() && grcRepo != nil {
+		var allGRCMappings []models.GRCMapping
+		for _, match := range matches {
 			vulnRecord := buildVulnRecord(match)
 			mappings, err := enrichSvc.EnrichVulnerability(ctx, match.CVE, vulnRecord)
 			if err != nil {
 				w.logger.Warn("enrichment failed for CVE", zap.String("cve", match.CVE), zap.Error(err))
 			} else if len(mappings) > 0 {
-				if err := grcRepo.DeleteByVulnerability(ctx, scan.OrgID, match.CVE); err != nil {
-					w.logger.Warn("failed to delete old GRC mappings", zap.String("cve", match.CVE), zap.Error(err))
-				}
-				grcMappings := make([]models.GRCMapping, 0, len(mappings))
 				for _, m := range mappings {
-					grcMappings = append(grcMappings, models.GRCMapping{
-						OrgID:           scan.OrgID,
-						VulnerabilityID: &vuln.ID,
-						Framework:       m.Framework,
-						ControlID:       m.Framework + "/" + m.ControlID,
-						MappingType:     m.MappingType,
-						Confidence:      m.Confidence,
-						Evidence:        m.Evidence,
+					allGRCMappings = append(allGRCMappings, models.GRCMapping{
+						OrgID:       scan.OrgID,
+						Framework:   m.Framework,
+						ControlID:   m.Framework + "/" + m.ControlID,
+						MappingType: m.MappingType,
+						Confidence:  m.Confidence,
+						Evidence:    m.Evidence,
 					})
 				}
-				if err := grcRepo.CreateBatch(ctx, grcMappings); err != nil {
-					w.logger.Warn("failed to store GRC mappings", zap.String("cve", match.CVE), zap.Error(err))
-				}
+			}
+		}
+		if len(allGRCMappings) > 0 {
+			if err := grcRepo.CreateBatch(ctx, allGRCMappings); err != nil {
+				w.logger.Warn("failed to batch store GRC mappings", zap.Error(err))
 			}
 		}
 	}

@@ -46,3 +46,6 @@ bdd/features/
 
 # Nix
 result
+
+# Local key material; never commit
+/keys

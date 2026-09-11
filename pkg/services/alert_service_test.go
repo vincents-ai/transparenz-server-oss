@@ -88,9 +88,22 @@ func TestAlertHub_Unsubscribe(t *testing.T) {
 
 	unsub()
 
-	_, ok := <-ch
-	if ok {
-		t.Fatal("channel should be closed after unsubscribe")
+	// After unsubscribe, the channel is removed from the hub but not closed.
+	// Verify no more broadcasts arrive by sending another alert.
+	hub.Broadcast("org-1", &Alert{
+		Type:      "test",
+		Severity:  "info",
+		Message:   "after unsub",
+		Timestamp: time.Now(),
+	})
+
+	select {
+	case msg, ok := <-ch:
+		if ok && msg.Message == "after unsub" {
+			t.Fatal("should not receive broadcast after unsubscribe")
+		}
+	case <-time.After(100 * time.Millisecond):
+		// Expected: no message received within timeout
 	}
 }
 

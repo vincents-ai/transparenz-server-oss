@@ -6,6 +6,56 @@ AGPL-3.0 licensed edition of the Transparenz compliance server. Provides core CR
 
 This repo is also the **single source of truth** for shared code used by the commercial edition (`transparenz-server`), which imports models, repositories, services, middleware, interfaces, and jobs via Go module dependency.
 
+## Vulnerability Disclosure Pipeline
+
+The OSS server provides manual-scan vulnerability detection:
+
+```
+  Feed API     VulnzSync   [manual]     Scan       SLA Calc    Alert
+  (NVD/OSV/ ──▶ Service  ──▶ trigger ──▶ Worker ──▶ Service ──▶ Service
+   EUVD/KEV)    (6h tick)   required     (5s poll)  (1m tick)   (30s tick)
+       ↓            ↓            ↓            ↓           ↓          ↓
+  Published    Ingested     Operator     Matched    Deadline   Operator
+   (T-0)        (T-1)      must act (T-2) (T-3)    set (T-4)  alerted (T-5)
+```
+
+| Stage | Component | Default Interval | Latency |
+|-------|-----------|-----------------|----------|
+| Feed sync | `VulnzSyncService` | **6 hours** | 0–6h |
+| Scan trigger | Manual `POST /api/scan` | — | **∞ (operator)** |
+| Scan processing | `ScanWorker` | 5s queue poll | 5–60s |
+| SLA calculation | `SlaCalculator` | 1 minute | 0–60s |
+| Alert notification | `AlertService` | 30 seconds | 0–30s |
+| **Total worst case** | | | **≥6h + manual** |
+
+### Differences from Commercial Edition
+
+| Feature | OSS | Commercial |
+|---------|-----|------------|
+| Feed sync interval | 6 hours | **15 minutes** |
+| Auto-rescan on feed update | ❌ Manual scan required | ✅ `AutoRescanHook` |
+| SLA erosion (Critical 72h) | 8.4% ⚠️ | **0.4%** ✅ |
+| SLA erosion (KEV 24h) | 25.2% ❌ | **1.2%** ✅ |
+| KEV-only rescan mode | N/A | Configurable |
+| Rescan cooldown | N/A | 30 min per SBOM |
+| Greenbone integration | ❌ | ✅ |
+| SBOM webhook ingestion | ❌ | ✅ |
+| ENISA API submission | Read-only | Full submit |
+| Usage telemetry | Basic | Full analytics |
+
+### SLA Deadline Fix (v0.1.6+)
+
+SLA deadlines are now anchored to the CVE's `discovered_at` timestamp, not
+`time.Now()`. This ensures ENISA/NIS2/CRA compliance — the SLA clock starts
+when the CVE is published, not when the calculator happens to run.
+
+### E2E Pipeline Test
+
+```bash
+cd tests/k6
+nix-shell -p k6 -p postgresql --run './run-e2e.sh'
+```
+
 ## Features
 
 - **SBOM Management** — Upload CycloneDX/SPDX SBOMs, track vulnerability status
@@ -141,7 +191,7 @@ Go's `internal/` package restriction prevents other modules from importing inter
 │                           │                                   │
 │                           ▼                                   │
 │  ┌─────────────────────────────────────────────────────────┐ │
-│  │ transparenz-server-oss (this repo) via go.mod replace   │ │
+│  │ transparenz-server-oss (this repo) via go.mod require   │ │
 │  │                                                          │ │
 │  │ pkg/models · pkg/repository · pkg/services               │ │
 │  │ pkg/interfaces · pkg/middleware · pkg/jobs               │ │
@@ -153,8 +203,17 @@ Go's `internal/` package restriction prevents other modules from importing inter
 
 The commercial `go.mod` contains:
 ```
-replace github.com/transparenz/transparenz-server-oss => ../transparenz-server-oss
+require github.com/transparenz-server-oss v0.1.6
 ```
+
+Published versions are consumed via `go get` -- no `replace` directive is needed.
+
+Commercial extensions (not in OSS):
+- `internal/services/auto_rescan.go` — PostSyncHook that auto-triggers scans after feed sync
+- `internal/config/config.go` — 15m sync interval, `AUTO_RESCAN` flag
+- `cmd/server/main.go` — Wires AutoRescanHook into VulnzSyncService
+
+See [Pipeline Differences](#differences-from-commercial-edition) for the full comparison.
 
 All shared code is maintained in this repo. The commercial edition only contains:
 - Commercial-only REST handlers (Greenbone, webhooks, signing, telemetry, PDF)
@@ -169,9 +228,6 @@ All shared code is maintained in this repo. The commercial edition only contains
 |--------|------|-------------|
 | GET | `/health` | Liveness probe |
 | GET | `/readyz` | Readiness probe |
-| GET | `/.well-known/csaf/:org/provider-metadata.json` | CSAF provider discovery |
-| GET | `/.well-known/csaf/:org/changes.csv` | CSAF change tracking |
-| GET | `/.well-known/csaf/:org/:id.json` | CSAF advisory document |
 
 ### Authenticated (JWT required)
 | Method | Path | Description |
@@ -188,15 +244,12 @@ All shared code is maintained in this repo. The commercial edition only contains
 | GET | `/api/vulnerabilities/:cve` | Get vulnerability by CVE |
 | GET | `/api/compliance/status` | Compliance status and SLA tracking |
 | GET | `/api/compliance/sla` | List SLA tracking entries |
-| POST | `/api/compliance/exploited` | Report exploited vulnerability |
-| POST | `/api/vex` | Create VEX statement |
-| GET | `/api/vex` | List VEX statements |
-| PUT | `/api/vex/:id/approve` | Approve VEX statement |
-| PUT | `/api/vex/:id/publish` | Publish VEX statement |
-| POST | `/api/disclosures` | Create disclosure |
+| GET | `/api/audit/verify` | Verify audit chain integrity |
+| GET | `/api/alerts/stream` | SSE real-time alert stream |
+| GET | `/api/orgs/support-period` | Get support period |
+| GET | `/api/feeds/status` | Vulnerability feed sync status |
 | GET | `/api/disclosures` | List disclosures |
 | GET | `/api/disclosures/:id` | Get disclosure |
-| PUT | `/api/disclosures/:id/status` | Update disclosure status |
 | GET | `/api/csaf/provider-metadata.json` | CSAF provider metadata |
 | GET | `/api/csaf/advisories` | List CSAF advisories |
 | GET | `/api/csaf/advisories/:id` | Get CSAF advisory |
@@ -205,14 +258,27 @@ All shared code is maintained in this repo. The commercial edition only contains
 | GET | `/api/enisa/submissions/:id` | Get ENISA submission |
 | GET | `/api/enisa/submissions/:id/download` | Download ENISA submission |
 | POST | `/api/enisa/submit` | **Returns 403** (commercial only) |
-| GET | `/api/audit/verify` | Verify audit chain |
+| POST | `/api/vex` | Create VEX statement |
+| GET | `/api/vex` | List VEX statements |
+| GET | `/api/metrics` | Prometheus metrics (basic auth) |
+
+### Compliance Officer (requires compliance_officer role)
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/compliance/exploited` | Report exploited vulnerability |
 | GET | `/api/export/audit` | Export audit trail (CSV) |
-| GET | `/api/export/enriched-sbom/:id` | Export enriched SBOM |
-| GET | `/api/alerts/stream` | SSE alert stream |
-| GET | `/api/orgs/support-period` | Get support period |
+| GET | `/api/export/enriched-sbom/:sbom_id` | Export enriched SBOM |
+| POST | `/api/vex/:id/approve` | Approve VEX statement |
+| POST | `/api/vex/:id/publish` | Publish VEX statement |
+| POST | `/api/disclosures` | Create disclosure |
+| PUT | `/api/disclosures/:id/status` | Update disclosure status |
+| GET | `/api/disclosures/sla-compliance` | Check SLA compliance |
+
+### Admin (requires admin role)
+| Method | Path | Description |
+|--------|------|-------------|
 | PUT | `/api/orgs/support-period` | Update support period |
-| GET | `/api/feeds/status` | Feed sync status |
-| GET | `/metrics` | Prometheus metrics (basic auth) |
+| POST | `/api/csaf/feeds/ingest` | Trigger CSAF feed ingestion |
 
 ## Testing
 
@@ -243,15 +309,77 @@ make test
 
 ## Environment Variables
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `DATABASE_URL` | Yes | — | PostgreSQL connection string |
-| `JWT_SECRET` | Yes | — | JWT signing secret (min 32 chars) |
-| `PORT` | No | `8080` | HTTP listen port |
-| `ENCRYPTION_KEY` | No | — | Data encryption at rest |
-| `GIN_MODE` | No | `debug` | Gin mode (`release` for production) |
-| `METRICS_USER` | No | — | Basic auth user for /metrics |
-| `METRICS_PASSWORD` | No | — | Basic auth password for /metrics |
+See `.env.example` for the complete list with descriptions and defaults.
+
+### Required
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection string (add `?sslmode=require` for production) |
+| `JWT_SECRET` | JWT signing secret (min 32 chars). Generate: `openssl rand -hex 32` |
+| `ENCRYPTION_KEY` | AES-256 key for data at rest (exactly 32 chars). Generate: `openssl rand -hex 16` |
+
+### Server
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `8080` | HTTP listen port |
+| `LOG_LEVEL` | `info` | Logging verbosity: `debug`, `info`, `warn`, `error` |
+| `BASE_URL` | | Public base URL for CSAF canonical URLs |
+| `MAX_SBOM_SIZE` | `10485760` | Max SBOM upload size in bytes (10 MB) |
+| `MULTI_TENANT_MODE` | `shared` | Tenant isolation: `shared`, `schema_per_org`, `instance_per_org` |
+| `GIN_MODE` | `debug` | Gin mode (`release` for production) |
+
+### Multi-Tenancy
+
+| Variable | Description |
+|----------|-------------|
+| `INSTANCE_DSN_FILE` | Path to JSON file mapping org IDs to DSNs (0600 perms) |
+| `INSTANCE_DSNS` | Inline JSON org ID to DSN mapping |
+
+### Feature Flags
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GREENBONE_ENABLED` | `false` | Greenbone scanner integration |
+| `SBOM_WEBHOOK_ENABLED` | `false` | SBOM ingestion webhooks |
+| `TELEMETRY_ENABLED` | `true` | OpenTelemetry analytics |
+| `VULNZ_DISABLED` | `false` | Disable vulnerability feed syncing |
+| `RATE_LIMIT_DISABLED` | `false` | Disable per-IP rate limiting |
+
+### Feeds & SLA
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VULNZ_WORKSPACE_PATH` | `/var/lib/vulnz/workspace` | Vulnerability feed data directory |
+| `VULNZ_SYNC_INTERVAL` | `6h` | Feed sync interval (commercial default: 15m) |
+| `ALERT_TICK_INTERVAL` | `30s` | Alert check interval |
+| `SLA_TICK_INTERVAL` | `1m` | SLA calculator interval |
+| `APPROACHING_SLA_THRESHOLD` | `6h` | Warning threshold for approaching deadlines |
+| `ENISA_TIMEOUT` | `30s` | ENISA API timeout |
+| `ENISA_RETRY_INTERVAL` | `15m` | ENISA retry backoff |
+| `ENISA_MAX_RETRIES` | `5` | Max ENISA submission retries |
+| `JOB_QUEUE_POLL_INTERVAL` | `5s` | Background job poll interval |
+
+### Metrics
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `METRICS_USER` | | Basic auth user for `/metrics` |
+| `METRICS_PASSWORD` | | Basic auth password for `/metrics` |
+
+### CORS
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:8080` | Comma-separated allowed origins |
+
+### Enrichment
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ENRICHMENT_DB_PATH` | `/var/lib/enrichment/enrichment.db` | Enrichment database path |
+| `ENRICHMENT_AUTO_INIT` | `true` | Auto-initialize enrichment DB |
 
 ## EU CRA Compliance Mapping
 

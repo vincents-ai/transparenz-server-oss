@@ -43,9 +43,8 @@ func NewExportHandler(
 }
 
 func (h *ExportHandler) ExportAudit(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization ID not found")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 
@@ -58,6 +57,7 @@ func (h *ExportHandler) ExportAudit(c *gin.Context) {
 	endStr := c.Query("end")
 
 	var start, end time.Time
+	var err error
 	if startStr != "" {
 		start, err = time.Parse("2006-01-02", startStr)
 		if err != nil {
@@ -118,9 +118,8 @@ func (h *ExportHandler) exportCSV(c *gin.Context, events []models.ComplianceEven
 }
 
 func (h *ExportHandler) ExportEnrichedSBOM(c *gin.Context) {
-	orgUUID, err := middleware.GetOrgUUIDFromContext(c)
-	if err != nil {
-		api.Unauthorized(c, "organization ID not found")
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
 		return
 	}
 
