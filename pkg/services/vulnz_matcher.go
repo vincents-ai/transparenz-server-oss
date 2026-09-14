@@ -96,11 +96,11 @@ func (m *VulnzMatcher) MatchComponents(ctx context.Context, components []SBOMCom
 					continue
 				}
 				seen[entry.cve] = true
-				score, severityLabel := m.severityNormalizer.Normalize(entry.baseScore, entry.severity, entry.bsiSeverity)
+				score, severityLabel := m.severityNormalizer.NormalizeMetadata(entry.baseScore, entry.severity, entry.bsiSeverity)
 				match := VulnerabilityMatch{
 					ID:               uuid.New(),
 					CVE:              entry.cve,
-					CVSSScore:        &score,
+					CVSSScore:        score,
 					Severity:         severityLabel,
 					PackageName:      comp.Name,
 					PackageVersion:   comp.Version,
@@ -127,7 +127,7 @@ func (m *VulnzMatcher) bruteForceMatch(feeds []models.VulnerabilityFeed, compone
 			aps := parseAffectedProducts(feed.AffectedProducts)
 			for _, ap := range aps {
 				if m.matchComponent(comp, ap) {
-					score, severityLabel := m.severityNormalizer.Normalize(feed.BaseScore, feed.EnisaSeverity, feed.BsiSeverity)
+					score, severityLabel := m.severityNormalizer.NormalizeMetadata(feed.BaseScore, feed.EnisaSeverity, feed.BsiSeverity)
 
 					feedSource := "unknown"
 					switch {
@@ -142,7 +142,7 @@ func (m *VulnzMatcher) bruteForceMatch(feeds []models.VulnerabilityFeed, compone
 					match := VulnerabilityMatch{
 						ID:               uuid.New(),
 						CVE:              feed.Cve,
-						CVSSScore:        &score,
+						CVSSScore:        score,
 						Severity:         severityLabel,
 						PackageName:      comp.Name,
 						PackageVersion:   comp.Version,

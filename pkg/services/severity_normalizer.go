@@ -25,6 +25,23 @@ func (sn *SeverityNormalizer) Normalize(baseScore *float64, enisaSeverity, bsiSe
 	return 0.0, "unknown"
 }
 
+// NormalizeMetadata preserves source score missingness. Advisory severity is
+// useful independently, but must never be presented as a measured CVSS score.
+func (sn *SeverityNormalizer) NormalizeMetadata(baseScore *float64, enisaSeverity, bsiSeverity string) (*float64, string) {
+	if baseScore != nil && *baseScore >= 0 && *baseScore <= 10 {
+		if *baseScore == 0 {
+			return baseScore, "none"
+		}
+		return baseScore, scoreToSeverity(*baseScore)
+	}
+	severity := strings.ToLower(strings.TrimSpace(enisaSeverity))
+	switch severity {
+	case "critical", "high", "medium", "low", "none":
+		return nil, severity
+	}
+	return nil, mapBSISeverity(strings.ToLower(strings.TrimSpace(bsiSeverity)))
+}
+
 func severityToScore(severity string) float64 {
 	switch strings.ToLower(severity) {
 	case "critical":
