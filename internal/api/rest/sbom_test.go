@@ -522,7 +522,7 @@ func TestExtensionToFormat(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got, ok := extensionToFormat(tt.ext, tt.ct)
+		got, ok := extensionToFormat(tt.ext, tt.ct, []byte{})
 		assert.Equal(t, tt.want, got, "ext=%s ct=%s", tt.ext, tt.ct)
 		assert.Equal(t, tt.wantOK, ok, "ext=%s ct=%s", tt.ext, tt.ct)
 	}

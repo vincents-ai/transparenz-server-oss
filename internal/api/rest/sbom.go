@@ -46,19 +46,23 @@ func init() {
 type SbomHandler struct {
 	sbomRepo              *repository.SbomRepository
 	maxSize               int64
+	telemetryService      *services.TelemetryService
 	alertHub              *services.AlertHub
 	insertIntoPublicSBOMs func(ctx context.Context, upload *models.SbomUpload) error
+	componentExtractor    *services.ComponentExtractor
 }
 
 // NewSbomHandler creates a handler for SBOM upload operations.
-func NewSbomHandler(sbomRepo *repository.SbomRepository, maxSize int64, alertHub *services.AlertHub) *SbomHandler {
+func NewSbomHandler(sbomRepo *repository.SbomRepository, maxSize int64, telemetryService *services.TelemetryService, alertHub *services.AlertHub, componentExtractor *services.ComponentExtractor) *SbomHandler {
 	return &SbomHandler{
-		sbomRepo: sbomRepo,
-		maxSize:  maxSize,
-		alertHub: alertHub,
+		sbomRepo:         sbomRepo,
+		maxSize:          maxSize,
+		telemetryService: telemetryService,
+		alertHub:         alertHub,
 		insertIntoPublicSBOMs: func(ctx context.Context, upload *models.SbomUpload) error {
 			return sbomRepo.InsertIntoPublic(ctx, upload)
 		},
+		componentExtractor: componentExtractor,
 	}
 }
 
@@ -101,7 +105,7 @@ func (h *SbomHandler) Upload(c *gin.Context) {
 	if strings.HasSuffix(fullExt, ".cdx.json") || strings.HasSuffix(fullExt, ".cdx.xml") {
 		ext = ".cdx"
 	}
-	format, ok := extensionToFormat(ext, header.Header.Get("Content-Type"))
+	format, ok := extensionToFormat(ext, header.Header.Get("Content-Type"), data)
 	if !ok {
 		api.BadRequest(c, "unsupported file format: must be SPDX or CycloneDX (JSON or XML)")
 		return
@@ -208,6 +212,10 @@ func (h *SbomHandler) Upload(c *gin.Context) {
 				Message:   "New SBOM uploaded: " + upload.Filename,
 				Timestamp: time.Now(),
 			})
+		}
+		// Extract components into indexed table for fast CVE matching
+		if h.componentExtractor != nil {
+			h.componentExtractor.ExtractAndStore(middleware.ContextWithOrgID(context.Background(), orgUUID), orgUUID, upload.ID, data)
 		}
 	}()
 
@@ -371,12 +379,30 @@ func (h *SbomHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusNoContent, nil)
 }
 
-func extensionToFormat(ext, contentType string) (string, bool) {
+func detectFormatFromContent(data []byte) string {
+	var doc map[string]interface{}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return ""
+	}
+	if _, ok := doc["bomFormat"]; ok {
+		return "cyclonedx-json"
+	}
+	if _, ok := doc["spdxVersion"]; ok {
+		return "spdx-json"
+	}
+	return ""
+}
+
+func extensionToFormat(ext, contentType string, data []byte) (string, bool) {
 	switch ext {
 	case ".json":
 		ct := strings.ToLower(contentType)
 		if strings.Contains(ct, "cyclonedx") {
 			return "cyclonedx-json", true
+		}
+		// Content-Type didn't disambiguate — check file content
+		if detected := detectFormatFromContent(data); detected != "" {
+			return detected, true
 		}
 		return "spdx-json", true
 	case ".xml":
