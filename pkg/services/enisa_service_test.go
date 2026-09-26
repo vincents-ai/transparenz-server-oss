@@ -17,10 +17,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vincents-ai/transparenz-server-oss/internal/testutil"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/middleware"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/repository"
-	"github.com/vincents-ai/transparenz-server-oss/internal/testutil"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
@@ -61,7 +61,7 @@ func newENISATestService(t *testing.T) *enisaTestFixture {
 	cryptoService, err := NewCryptoService(cryptoKey)
 	require.NoError(t, err)
 
-		svc := NewENISAService(orgRepo, subRepo, nil, generator, cryptoService, nil, zap.NewNop(), 0, 0, 0)
+	svc := NewENISAService(orgRepo, subRepo, nil, generator, cryptoService, nil, zap.NewNop(), 0, 0, 0)
 	return &enisaTestFixture{svc: svc, orgRepo: orgRepo, subRepo: subRepo, db: db}
 }
 
@@ -96,54 +96,47 @@ func TestENISAService_Submit_ExportMode(t *testing.T) {
 	assert.Equal(t, org.ID, sub.OrgID)
 }
 
-func TestENISAService_Submit_APIMode_MockServer(t *testing.T) {
-	// Set up a mock ENISA HTTP server
-	mockServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "POST", r.Method)
-		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"accepted"}`))
-	}))
-	defer mockServer.Close()
-
+// TestENISAService_Submit_ENISAAPIModeIsRefused pins the change that removed
+// the "ENISA API" submission mode.
+//
+// This mode used to POST the CSAF document to org.EnisaAPIEndpoint — a URL the
+// operator configured themselves — and record the result as an ENISA
+// submission. There is no such integration: the ENISA Single Reporting
+// Platform publishes no API. Silently performing a CSIRT push under ENISA's
+// name is how a manufacturer comes to believe a filing duty has been
+// discharged when it has not, so the mode is now refused with an explanation
+// rather than quietly honoured.
+func TestENISAService_Submit_ENISAAPIModeIsRefused(t *testing.T) {
 	fix := newENISATestService(t)
-	fix.svc.httpClient = mockServer.Client()
-
-	// Encrypt a fake API key
-	encryptedKey, encErr := fix.svc.cryptoService.Encrypt("fake-api-key")
-	require.NoError(t, encErr)
 
 	org := &models.Organization{
-		ID:                   uuid.New(),
-		Name:                 "API Mode Org",
-		Slug:                 "api-mode-org",
-		EnisaSubmissionMode:  "api",
-		EnisaAPIEndpoint:     mockServer.URL,
-		EnisaAPIKeyEncrypted: encryptedKey,
-		CsafScope:            "per_sbom",
-		SlaTrackingMode:      "per_cve",
+		ID:                  uuid.New(),
+		Name:                "API Mode Org",
+		Slug:                "api-mode-org",
+		EnisaSubmissionMode: legacyModeAPI,
+		EnisaAPIEndpoint:    "https://example.invalid/somewhere",
+		CsafScope:           "per_sbom",
+		SlaTrackingMode:     "per_cve",
 	}
 	require.NoError(t, fix.orgRepo.Create(context.Background(), org))
 
-	// Seed the vulnerability that CSAF generation will look up.
 	vuln := &models.Vulnerability{
-		ID:       uuid.New(),
-		OrgID:    org.ID,
-		Cve:      "CVE-2024-5678",
-		Severity: "medium",
+		ID: uuid.New(), OrgID: org.ID, Cve: "CVE-2024-5678", Severity: "medium",
 	}
 	require.NoError(t, fix.db.Create(vuln).Error)
 
 	ctx := middleware.ContextWithOrgID(context.Background(), org.ID)
-	// The private IP check will cause submitToENISAAPI to fail (status becomes "failed").
-	sub, err := fix.svc.Submit(ctx, org.ID, "CVE-2024-5678", nil)
+	_, err := fix.svc.Submit(ctx, org.ID, "CVE-2024-5678", nil)
 
-	require.NoError(t, err)
-	assert.NotNil(t, sub)
-	assert.Equal(t, "failed", sub.Status)
+	require.ErrorIs(t, err, ErrENISAAPINotAvailable)
+	// The message has to say WHY, not just that it failed: "not available" and
+	// "your configuration is wrong" call for different operator responses.
+	assert.Contains(t, err.Error(), "publishes no API")
+	assert.Contains(t, err.Error(), SubmissionModeReceiver)
+	assert.Contains(t, err.Error(), SubmissionModeManual)
 }
 
-// TestENISAService_Submit_APIMode_Success_PersistsReceipt verifies the three
+// TestENISAService_Submit_ReceiverMode_Success_PersistsReceipt verifies the three
 // reliability fixes from the ENISA regulatory review: (1) a stable SubmissionID
 // is generated and sent as the Idempotency-Key header so retries don't create
 // duplicate filings; (2) the authority's response (the receipt) is captured;
@@ -151,7 +144,7 @@ func TestENISAService_Submit_APIMode_MockServer(t *testing.T) {
 //
 // The SSRF guard (middleware.IsPrivateIP) blocks IP literals like 127.0.0.1
 // but allows hostnames, so the mock endpoint is addressed via 'localhost'.
-func TestENISAService_Submit_APIMode_Success_PersistsReceipt(t *testing.T) {
+func TestENISAService_Submit_ReceiverMode_Success_PersistsReceipt(t *testing.T) {
 	var capturedIdempotencyKey string
 	mockServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedIdempotencyKey = r.Header.Get("Idempotency-Key")
@@ -175,12 +168,15 @@ func TestENISAService_Submit_APIMode_Success_PersistsReceipt(t *testing.T) {
 	// literals) allows the request through.
 	endpoint := strings.Replace(mockServer.URL, "127.0.0.1", "localhost", 1)
 
+	// The receiver mode is what this test has always exercised: it pushes the
+	// document to the configured endpoint. It is now named for that rather than
+	// for an ENISA integration that does not exist.
 	org := &models.Organization{
 		ID:                   uuid.New(),
-		Name:                 "API Success Org",
-		Slug:                 "api-success-org",
-		EnisaSubmissionMode:  "api",
-		EnisaAPIEndpoint:     endpoint,
+		Name:                 "Receiver Success Org",
+		Slug:                 "receiver-success-org",
+		EnisaSubmissionMode:  SubmissionModeReceiver,
+		CsirtEndpoint:        endpoint,
 		EnisaAPIKeyEncrypted: encryptedKey,
 		CsafScope:            "per_sbom",
 		SlaTrackingMode:      "per_cve",

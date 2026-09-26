@@ -22,17 +22,38 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/middleware"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/regulatory/srp"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/repository"
 	"go.uber.org/zap"
 )
 
+// submissionFailuresTotal counts deliveries that exhausted their retries.
+//
+// It is NOT an ENISA counter. The ENISA Single Reporting Platform publishes no
+// API, so nothing is ever submitted to ENISA by this service; the destination
+// is an operator-configured receiver, in practice a national CSIRT.
+var submissionFailuresTotal = prometheus.NewCounter(prometheus.CounterOpts{
+	Name: "transparenz_submission_failures_total",
+	Help: "Total number of submissions to a configured receiver that exhausted all retries",
+})
+
+// enisaSubmissionFailuresTotal is the deprecated name of the same count.
+//
+// It is kept and incremented alongside the correctly-named counter because
+// dashboards and alerts query it by name, and silently removing a metric is a
+// worse outage than keeping a misnomer. The Help text states plainly what it
+// actually measures so anyone reading the metric is not misled into thinking the
+// system files with ENISA. Remove it once the dashboards have been migrated.
 var enisaSubmissionFailuresTotal = prometheus.NewCounter(prometheus.CounterOpts{
 	Name: "enisa_submission_failures_total",
-	Help: "Total number of ENISA submissions that exhausted all retries",
+	Help: "DEPRECATED: misnomer. Counts failures pushing to an operator-configured " +
+		"receiver (typically a national CSIRT). The ENISA Single Reporting Platform " +
+		"publishes no API and this service never files with ENISA. " +
+		"Use transparenz_submission_failures_total instead.",
 })
 
 func init() {
-	prometheus.MustRegister(enisaSubmissionFailuresTotal)
+	prometheus.MustRegister(submissionFailuresTotal, enisaSubmissionFailuresTotal)
 }
 
 // ENISAService manages CSAF document submission to ENISA and national CSIRTs.
@@ -93,31 +114,45 @@ func (s *ENISAService) Submit(ctx context.Context, orgID uuid.UUID, cve string, 
 		Status:       "pending",
 	}
 
-	switch org.EnisaSubmissionMode {
-	case "api":
-		receipt, submitErr := s.submitToENISAAPI(org, csafDoc, submission.SubmissionID)
+	mode, honoured := NormalizeSubmissionMode(org.EnisaSubmissionMode)
+	if !honoured {
+		if mode == SubmissionModeENISAAPI {
+			return nil, enisaAPINotAvailableError(org.EnisaSubmissionMode)
+		}
+		return nil, fmt.Errorf("unknown submission mode: %s", org.EnisaSubmissionMode)
+	}
+
+	switch mode {
+	case SubmissionModeReceiver:
+		// A push to an operator-configured receiver — in practice a national
+		// CSIRT's own endpoint, which does exist and does accept filings.
+		receipt, submitErr := s.deliverToReceiver(ctx, org, csafDoc, submission.SubmissionID)
 		if submitErr != nil {
 			submission.Status = "failed"
-			s.logger.Error("ENISA API submission failed", zap.Error(submitErr))
+			s.logger.Error("receiver submission failed", zap.Error(submitErr))
 		} else {
 			submission.Status = "submitted"
 			submission.Response = receipt
 			now := time.Now().UTC()
 			submission.SubmittedAt = &now
 		}
-	case "csirt":
-		receipt, submitErr := s.submitToCSIRT(org, csafDoc, submission.SubmissionID)
-		if submitErr != nil {
-			submission.Status = "failed"
-			s.logger.Error("CSIRT submission failed", zap.Error(submitErr))
-		} else {
-			submission.Status = "submitted"
-			submission.Response = receipt
-			now := time.Now().UTC()
-			submission.SubmittedAt = &now
-		}
-	case "export":
+	case SubmissionModeManual:
+		// A person files the document themselves. Nothing is sent.
 		submission.Status = "pending"
+	case SubmissionModeENISAAPI:
+		// Refused rather than silently redirected.
+		//
+		// This mode used to POST the document to org.EnisaAPIEndpoint — a URL
+		// the operator configured themselves. It was not an ENISA integration,
+		// because there is no ENISA API to integrate with: the Single Reporting
+		// Platform publishes none, and ENISA states API functionality may be
+		// considered later. Silently sending a CSIRT's document to a
+		// user-supplied URL under the name "ENISA" is how a manufacturer comes
+		// to believe a filing duty has been discharged when it has not.
+		//
+		// Existing configurations are pointed at the receiver mode, which is
+		// what they were actually doing.
+		return nil, enisaAPINotAvailableError(org.EnisaSubmissionMode)
 	default:
 		return nil, fmt.Errorf("unknown submission mode: %s", org.EnisaSubmissionMode)
 	}
@@ -129,139 +164,74 @@ func (s *ENISAService) Submit(ctx context.Context, orgID uuid.UUID, cve string, 
 	return submission, nil
 }
 
-func (s *ENISAService) submitToENISAAPI(org *models.Organization, csaf *CSAFDocument, idempotencyKey string) (models.JSONMap, error) {
-	if org.EnisaAPIEndpoint == "" {
-		return nil, fmt.Errorf("ENISA API endpoint not configured")
+// deliverToReceiver pushes a CSAF document to an operator-configured receiver.
+//
+// It replaces two near-identical functions, submitToENISAAPI and submitToCSIRT,
+// which differed only in log wording and in whether an API key was mandatory.
+// Both posted to org.EnisaAPIEndpoint, so selecting "ENISA API" sent the
+// document to a user-supplied URL under ENISA's name. Collapsing them into one
+// honestly-named function makes it obvious that there is no ENISA integration
+// here and never was.
+func (s *ENISAService) deliverToReceiver(ctx context.Context, org *models.Organization, csaf *CSAFDocument, idempotencyKey string) (models.JSONMap, error) {
+	endpoint := submissionEndpoint(org)
+	if endpoint == "" {
+		return nil, fmt.Errorf("no submission endpoint configured: set the CSIRT endpoint, or use %q for a document a person files", SubmissionModeManual)
 	}
-
-	u, err := url.Parse(org.EnisaAPIEndpoint)
+	u, err := url.Parse(endpoint)
 	if err != nil || u.Scheme != "https" || middleware.IsPrivateIP(u.Hostname()) {
-		return nil, fmt.Errorf("invalid ENISA API endpoint: must be HTTPS and not a private IP")
+		return nil, fmt.Errorf("%w: %s", srp.ErrNotHTTPS, endpoint)
 	}
 
 	payload, err := json.Marshal(csaf)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal CSAF: %w", err)
+		return nil, fmt.Errorf("failed to encode CSAF: %w", err)
 	}
-
-	req, err := http.NewRequest("POST", org.EnisaAPIEndpoint, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to build request: %w", err)
 	}
-
 	req.Header.Set("Content-Type", "application/json")
-	if idempotencyKey != "" {
-		// Idempotency-Key lets ENISA dedupe retries of the same filing (e.g. when
-		// the first attempt reached the server but the response was lost). The
-		// key is the persisted SubmissionID, stable across the initial Submit and
-		// all background retries.
-		req.Header.Set("Idempotency-Key", idempotencyKey)
-	}
-
-	apiKey, err := s.cryptoService.Decrypt(org.EnisaAPIKeyEncrypted)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt API key: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		if resp.StatusCode == http.StatusTooManyRequests {
-			retryAfter := resp.Header.Get("Retry-After")
-			s.logger.Warn("ENISA API rate limited",
-				zap.Int("status_code", resp.StatusCode),
-				zap.String("retry_after", retryAfter),
-				zap.String("body", string(body)),
-			)
-			return nil, fmt.Errorf("enisa API error %d: rate limited, retry-after: %s, body: %s", resp.StatusCode, retryAfter, string(body))
-		}
-		return nil, fmt.Errorf("enisa API error %d: %s", resp.StatusCode, string(body))
-	}
-
-	var result models.JSONMap
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		s.logger.Warn("failed to parse ENISA response", zap.Error(err))
-		result = nil
-	}
-
-	s.logger.Info("ENISA submission successful",
-		zap.String("org_id", org.ID.String()),
-		zap.Int("status_code", resp.StatusCode),
-	)
-
-	return result, nil
-}
-
-func (s *ENISAService) submitToCSIRT(org *models.Organization, csaf *CSAFDocument, idempotencyKey string) (models.JSONMap, error) {
-	if org.EnisaAPIEndpoint == "" {
-		return nil, fmt.Errorf("csirt endpoint not configured")
-	}
-
-	u, err := url.Parse(org.EnisaAPIEndpoint)
-	if err != nil || u.Scheme != "https" || middleware.IsPrivateIP(u.Hostname()) {
-		return nil, fmt.Errorf("invalid CSIRT endpoint: must be HTTPS and not a private IP")
-	}
-
-	payload, err := json.Marshal(csaf)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal CSAF: %w", err)
-	}
-
-	req, err := http.NewRequest("POST", org.EnisaAPIEndpoint, bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	if idempotencyKey != "" {
-		req.Header.Set("Idempotency-Key", idempotencyKey)
-	}
+	// The persisted SubmissionID is stable across the initial Submit and every
+	// background retry, so a receiver can recognise a retry of the same filing
+	// rather than opening a second case for one event.
+	req.Header.Set("Idempotency-Key", idempotencyKey)
 	if org.EnisaAPIKeyEncrypted != "" {
-		apiKey, err := s.cryptoService.Decrypt(org.EnisaAPIKeyEncrypted)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decrypt API key: %w", err)
+		apiKey, derr := s.cryptoService.Decrypt(org.EnisaAPIKeyEncrypted)
+		if derr != nil {
+			return nil, fmt.Errorf("failed to decrypt submission credential: %w", derr)
 		}
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, fmt.Errorf("submission to receiver failed: %w", err)
 	}
-	defer resp.Body.Close() //nolint:errcheck
+	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		if resp.StatusCode == http.StatusTooManyRequests {
-			retryAfter := resp.Header.Get("Retry-After")
-			s.logger.Warn("CSIRT rate limited",
-				zap.Int("status_code", resp.StatusCode),
-				zap.String("retry_after", retryAfter),
-				zap.String("body", string(body)),
-			)
-			return nil, fmt.Errorf("csirt error %d: rate limited, retry-after: %s, body: %s", resp.StatusCode, retryAfter, string(body))
-		}
-		return nil, fmt.Errorf("csirt error %d: %s", resp.StatusCode, string(body))
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		s.logger.Warn("receiver rate limited",
+			zap.String("endpoint", endpoint),
+			zap.String("retry_after", resp.Header.Get("Retry-After")),
+			zap.String("body", string(body)))
+		return nil, fmt.Errorf("receiver rate limited, retry-after: %s", resp.Header.Get("Retry-After"))
 	}
-
-	var result models.JSONMap
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		s.logger.Warn("failed to parse CSIRT response", zap.Error(err))
-		result = nil
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, fmt.Errorf("receiver returned %d: %s", resp.StatusCode, string(body))
 	}
 
-	s.logger.Info("CSIRT submission successful",
-		zap.String("org_id", org.ID.String()),
-		zap.Int("status_code", resp.StatusCode),
-	)
+	s.logger.Info("submission delivered to configured receiver",
+		zap.String("endpoint", endpoint),
+		zap.String("submission_id", idempotencyKey),
+		zap.String("note", "delivered to an operator-configured receiver; this is not the ENISA Single Reporting Platform, which publishes no API"))
 
-	return result, nil
+	var parsed map[string]any
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		parsed = map[string]any{"body": string(body)}
+	}
+	return models.JSONMap(parsed), nil
 }
 
 func (s *ENISAService) StartRetryWorker(ctx context.Context) {
@@ -314,16 +284,29 @@ func (s *ENISAService) retryFailed(ctx context.Context) error {
 			}
 		}
 
-		var receipt models.JSONMap
-		var submitErr error
-		switch org.EnisaSubmissionMode {
-		case "api":
-			receipt, submitErr = s.submitToENISAAPI(org, csafDoc, sub.SubmissionID)
-		case "csirt":
-			receipt, submitErr = s.submitToCSIRT(org, csafDoc, sub.SubmissionID)
-		default:
+		mode, honoured := NormalizeSubmissionMode(org.EnisaSubmissionMode)
+		if !honoured {
+			// An un-honourable mode is a configuration problem, not a transient
+			// delivery failure, so retrying it would burn the whole retry budget
+			// against something that can never succeed. It is logged once and
+			// the submission is left pending for an operator to resolve.
+			if mode == SubmissionModeENISAAPI {
+				s.logger.Warn("cannot retry: submission mode addresses an ENISA API that does not exist",
+					zap.String("submission_id", sub.ID.String()),
+					zap.Error(ErrENISAAPINotAvailable))
+			} else {
+				s.logger.Warn("cannot retry: unknown submission mode",
+					zap.String("submission_id", sub.ID.String()),
+					zap.String("mode", org.EnisaSubmissionMode))
+			}
 			continue
 		}
+		if mode != SubmissionModeReceiver {
+			// Manual mode is not a failed delivery; it was never a delivery.
+			continue
+		}
+
+		receipt, submitErr := s.deliverToReceiver(ctx, org, csafDoc, sub.SubmissionID)
 
 		if submitErr != nil {
 			_ = s.subRepo.IncrementRetry(ctx, sub.ID)
@@ -422,6 +405,7 @@ func (s *ENISAService) checkExhausted(ctx context.Context) error {
 		}
 
 		// Increment Prometheus counter
+		submissionFailuresTotal.Inc()
 		enisaSubmissionFailuresTotal.Inc()
 
 		s.logger.Error("ENISA submission exhausted all retries",
