@@ -23,7 +23,10 @@ func SetupTestDB(t *testing.T, tables ...string) *gorm.DB {
 			pdf_template text DEFAULT 'generic', sla_tracking_mode text DEFAULT 'per_cve',
 			tier text NOT NULL DEFAULT 'standard', sla_mode text NOT NULL DEFAULT 'alerts_only',
 			multi_tenant_mode text DEFAULT 'shared', enisa_api_endpoint text,
-			enisa_api_key_encrypted text, support_period_months integer DEFAULT 60,
+			enisa_api_key_encrypted text,
+			nis2_member_state text, nis2_sector text, nis2_entity_class text,
+			csirt_endpoint text,
+			support_period_months integer DEFAULT 60,
 			support_start_date datetime, support_end_date datetime,
 			created_at datetime DEFAULT CURRENT_TIMESTAMP, updated_at datetime DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -62,6 +65,9 @@ func SetupTestDB(t *testing.T, tables ...string) *gorm.DB {
 			kev_date_added datetime, euvd_id text DEFAULT '',
 			"bsi_tr_03116_compliant" integer,
 			sovereign_feed_source text DEFAULT '',
+			awareness_at datetime, awareness_source text, awareness_evidence text,
+			awareness_recorded_at datetime, awareness_recorded_by text,
+			active_exploitation_confirmed integer DEFAULT 0,
 			discovered_at datetime DEFAULT CURRENT_TIMESTAMP,
 			created_at datetime DEFAULT CURRENT_TIMESTAMP, updated_at datetime DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -141,6 +147,8 @@ func SetupTestDB(t *testing.T, tables ...string) *gorm.DB {
 			id text PRIMARY KEY, org_id text NOT NULL, cve text NOT NULL,
 			sbom_id text, deadline datetime NOT NULL, status text DEFAULT 'pending',
 			notified_at datetime,
+			obligation_type text NOT NULL DEFAULT 'handling',
+			anchor_at datetime, anchor_name text,
 			created_at datetime DEFAULT CURRENT_TIMESTAMP, updated_at datetime DEFAULT CURRENT_TIMESTAMP
 		)`,
 		"org_telemetry_configs": `CREATE TABLE IF NOT EXISTS "compliance"."org_telemetry_configs" (

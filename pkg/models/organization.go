@@ -27,7 +27,14 @@ type Organization struct {
 	SlaMode         string `gorm:"not null;default:'alerts_only'" json:"sla_mode"`
 	MultiTenantMode string `gorm:"column:multi_tenant_mode;default:'shared'" json:"multi_tenant_mode,omitempty"`
 
-	EnisaAPIEndpoint     string `json:"enisa_api_endpoint,omitempty"`
+	EnisaAPIEndpoint string `json:"enisa_api_endpoint,omitempty"`
+	// CsirtEndpoint is the national CSIRT's own submission endpoint. It is
+	// preferred over EnisaAPIEndpoint, whose name is a misnomer: that column
+	// has always held whatever URL the operator configured and has never been
+	// an ENISA endpoint, because the ENISA Single Reporting Platform publishes
+	// no API. New installations set this field; the legacy one is still read
+	// as a fallback so existing deployments keep working.
+	CsirtEndpoint        string `json:"csirt_endpoint,omitempty"`
 	EnisaAPIKeyEncrypted string `json:"-" gorm:"column:enisa_api_key_encrypted"`
 
 	// NIS2 competent-authority routing metadata. MemberState is an ISO 3166-1

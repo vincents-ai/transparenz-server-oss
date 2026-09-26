@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/middleware"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/regulatory/cra"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/repository"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -23,16 +24,39 @@ const (
 	// SlaModePerSbom tracks one SLA deadline per CVE per SBOM.
 	SlaModePerSbom = "per_sbom"
 
-	// SlaDeadlineKEV is the CRA-mandated reporting deadline for KEV (exploited) vulnerabilities.
-	SlaDeadlineKEV = 24 * time.Hour
-	// SlaDeadlineCritical is the CRA-mandated reporting deadline for critical vulnerabilities.
-	SlaDeadlineCritical = 72 * time.Hour
+	// SlaHandlingExploitedWindow is the internal handling window for a
+	// vulnerability known to be exploited: remediate or otherwise contain it
+	// within 24 hours.
+	//
+	// This is an internal duty. It is NOT a CRA Article 14 reporting deadline,
+	// and calling it one was the central error of the pre-2026 model: Article
+	// 14 is anchored on the manufacturer's awareness and gated on evidence of
+	// active exploitation, neither of which is what this window measures.
+	SlaHandlingExploitedWindow = 24 * time.Hour
+
+	// SlaHandlingCriticalWindow is the internal handling window for a critical
+	// vulnerability with no evidence of exploitation. A CVSS score is a triage
+	// heuristic; it is not a regulatory trigger.
+	SlaHandlingCriticalWindow = 72 * time.Hour
+
+	// Deprecated: retained as aliases so existing callers compile, but the
+	// names encode the severity-as-reportability conflation this package now
+	// refuses to reproduce. Use the SlaHandling* names.
+	SlaDeadlineKEV      = SlaHandlingExploitedWindow
+	SlaDeadlineCritical = SlaHandlingCriticalWindow
 
 	// SlaAutomationAlertsOnly means SLA breaches only trigger UI alerts; no automated submissions.
 	SlaAutomationAlertsOnly = "alerts_only"
 	// SlaAutomationApprovalGate means CSAF is auto-generated but requires human approval before submission.
 	SlaAutomationApprovalGate = "approval_gate"
-	// SlaAutomationFullyAutomatic means CSAF is auto-generated and submitted without human intervention.
+	// SlaAutomationFullyAutomatic means the document is generated and pushed to
+	// the operator-configured receiver without human intervention.
+	//
+	// It is not an ENISA integration and never was. The ENISA Single Reporting
+	// Platform publishes no API, so the destination is a national CSIRT's own
+	// endpoint, or — under the manual submission mode — a person. An
+	// organisation that configured the ENISA API mode has its submissions
+	// refused with an explanation; see NormalizeSubmissionMode.
 	SlaAutomationFullyAutomatic = "fully_automatic"
 )
 
@@ -51,7 +75,7 @@ type SlaCalculator struct {
 	tick         *TickWorker
 }
 
-// autoSubmitter is the subset of ENISAService the SLA calculator depends on.
+// autoSubmitter is the subset of the submission service the SLA calculator depends on.
 // It exists so the autosubmit path can be tested with a fake and so the
 // calculator depends on an abstraction rather than a concrete service.
 type autoSubmitter interface {
@@ -84,7 +108,7 @@ func NewSlaCalculator(
 	return calc
 }
 
-// WithEnisaSubmissionRepository wires the ENISA submission repository used by
+// WithEnisaSubmissionRepository wires the submission repository used by
 // the reconciler to reflect later-successful retries onto SLA status. Optional:
 // when unset, reconciliation is skipped (SLAs stay pending/violated if a retry
 // later succeeds — the EnisaSubmission row remains the authoritative record).
@@ -147,7 +171,7 @@ func (c *SlaCalculator) CalculateDeadlines(ctx context.Context) {
 
 	c.detectAndHandleBreaches(ctx)
 
-	// Reflect later-successful ENISA retries onto SLA status: if a submission
+	// Reflect later-successful submission retries onto SLA status: if a submission
 	// that initially failed (leaving the SLA pending/violated) later succeeded
 	// via the retry worker, flip the SLA to auto_submitted. No-op when the
 	// submission repo isn't wired.
@@ -265,14 +289,24 @@ func (c *SlaCalculator) processPerCveMode(
 			}
 		}
 
-		deadline := computeDeadline(matched.Vulnerability, isKEV)
+		deadline, anchor, anchorName := computeDeadline(matched.Vulnerability, isKEV)
+		obligationType := models.ObligationHandling
+		if anchorName == models.AnchorAwarenessAt {
+			obligationType = models.ObligationArticle14
+		}
 
 		sla := &models.SlaTracking{
-			OrgID:    orgID,
-			Cve:      cve,
-			SbomID:   nil,
-			Deadline: deadline,
-			Status:   "pending",
+			OrgID:          orgID,
+			Cve:            cve,
+			SbomID:         nil,
+			Deadline:       deadline,
+			Status:         "pending",
+			ObligationType: obligationType,
+			AnchorName:     anchorName,
+		}
+		if anchorName == models.AnchorAwarenessAt {
+			a := anchor
+			sla.AnchorAt = &a
 		}
 
 		if err := c.slaRepo.Create(ctx, orgID, sla); err != nil {
@@ -390,14 +424,24 @@ func (c *SlaCalculator) processPerSbomMode(
 				}
 			}
 
-			deadline := computeDeadline(matched.Vulnerability, isKEV)
+			deadline, anchor, anchorName := computeDeadline(matched.Vulnerability, isKEV)
+			obligationType := models.ObligationHandling
+			if anchorName == models.AnchorAwarenessAt {
+				obligationType = models.ObligationArticle14
+			}
 
 			sla := &models.SlaTracking{
-				OrgID:    orgID,
-				Cve:      cve,
-				SbomID:   &sbomID,
-				Deadline: deadline,
-				Status:   "pending",
+				OrgID:          orgID,
+				Cve:            cve,
+				SbomID:         &sbomID,
+				Deadline:       deadline,
+				Status:         "pending",
+				ObligationType: obligationType,
+				AnchorName:     anchorName,
+			}
+			if anchorName == models.AnchorAwarenessAt {
+				a := anchor
+				sla.AnchorAt = &a
 			}
 
 			if err := c.slaRepo.Create(ctx, orgID, sla); err != nil {
@@ -426,47 +470,100 @@ func (c *SlaCalculator) processPerSbomMode(
 	return created
 }
 
-// computeDeadline returns the CRA Art. 10 SLA deadline for a vulnerability,
-// anchored to when the vuln became known to the vendor rather than to the
-// moment the calculator happened to run. CRA Art. 10(1) (exploited) clocks run
-// from exploitation; Art. 10(2) (critical) clocks run from when the vuln was
-// known to the manufacturer.
+// computeDeadline returns the deadline for a tracked vulnerability and the
+// anchor it was derived from.
 //
-// Anchor selection:
-//   - KEV/exploited (24h): KevDateAdded (the exploitation date) if present,
-//     otherwise DiscoveredAt.
-//   - critical (72h): DiscoveredAt (the known-to-vendor date).
+// The two duties that were previously conflated are now separate.
 //
-// Guards:
-//   - A zero or future anchor (missing feed data / clock skew) falls back to
-//     time.Now() so we never persist a 1970-based or future deadline.
-//   - A deadline already in the past is returned as-is: the SLA is genuinely
-//     already breached and the breach detector (alert_service) will flip it to
-//     'violated' and sign the event. Surfacing real breaches is the point of
-//     this function — masking them was the original bug.
-func computeDeadline(vuln models.Vulnerability, isKEV bool) time.Time {
+//  1. A CRA Article 14 REPORTING obligation exists only when the manufacturer
+//     has both (a) an awareness instant with evidence and (b) an evidenced
+//     determination that the vulnerability is being actively exploited. It is
+//     then measured from awareness_at. A CVSS score is never consulted.
+//
+//  2. Otherwise we track an internal HANDLING window. It is anchored on when we
+//     learned of the vulnerability (or, for a feed-asserted exploitation, on
+//     the feed's date) and is a remediation duty, not a reporting duty.
+//
+// The distinction is not cosmetic. Under the previous model a CVSS 9.8 with no
+// evidence of exploitation produced a "72h CRA reporting deadline" anchored on
+// our own ingestion time. That entry looked regulatory, appeared on compliance
+// dashboards, and measured nothing the Regulation requires.
+//
+// The old anchors (KevDateAdded, DiscoveredAt) are retained for handling
+// windows only. Neither is ever used for an Article 14 obligation: the first is
+// a third party's clock, the second is our ingestion time, and a manufacturer
+// that is slow to ingest a feed is not thereby entitled to a longer deadline.
+func computeDeadline(vuln models.Vulnerability, isKEV bool) (deadline, anchor time.Time, anchorName string) {
+	now := time.Now()
+
+	if d, anchor, name, ok := article14Deadline(vuln, now); ok {
+		return d, anchor, name
+	}
+	return handlingDeadline(vuln, isKEV, now)
+}
+
+// article14Deadline returns the Article 14 early-warning deadline when the
+// vulnerability is reportable and the awareness instant is evidenced.
+//
+// ok is false when the preconditions are not met, which means "not yet
+// reportable" rather than "reportable, deadline unknown". A reportable
+// determination with no awareness instant is refused rather than defaulted,
+// because a defaulted anchor silently extends the deadline.
+func article14Deadline(vuln models.Vulnerability, now time.Time) (deadline time.Time, anchor time.Time, anchorName string, ok bool) {
+	if !vuln.ActiveExploitationConfirmed {
+		return time.Time{}, time.Time{}, "", false
+	}
+	if vuln.AwarenessAt == nil || vuln.AwarenessAt.IsZero() {
+		return time.Time{}, time.Time{}, "", false
+	}
+	if vuln.AwarenessEvidence == "" {
+		// Awareness without evidence cannot anchor a regulatory clock.
+		return time.Time{}, time.Time{}, "", false
+	}
+	if vuln.AwarenessAt.After(now) {
+		// Clock skew or a bad feed timestamp. Falling forward to now+window
+		// would hand the filer a fresh 24 hours for a past event.
+		return time.Time{}, time.Time{}, "", false
+	}
+	return vuln.AwarenessAt.Add(cra.EarlyWarningWindow), *vuln.AwarenessAt, models.AnchorAwarenessAt, true
+}
+
+// handlingDeadline returns the internal remediation window.
+func handlingDeadline(vuln models.Vulnerability, isKEV bool, now time.Time) (time.Time, time.Time, string) {
 	var anchor time.Time
-	if isKEV && vuln.KevDateAdded != nil {
+	anchorName := models.AnchorDiscoveredAt
+
+	switch {
+	case isKEV && vuln.KevDateAdded != nil:
 		anchor = *vuln.KevDateAdded
-	} else {
+		anchorName = models.AnchorKevDateAdded
+	case vuln.DiscoveredAt.IsZero():
+		// No ingestion timestamp at all. Start from now rather than persist a
+		// 1970-based deadline.
+		window := SlaHandlingCriticalWindow
+		if isKEV {
+			window = SlaHandlingExploitedWindow
+		}
+		return now.Add(window), time.Time{}, anchorName
+	default:
 		anchor = vuln.DiscoveredAt
 	}
 
-	now := time.Now()
-	window := SlaDeadlineCritical
+	window := SlaHandlingCriticalWindow
 	if isKEV {
-		window = SlaDeadlineKEV
+		window = SlaHandlingExploitedWindow
 	}
 
-	if anchor.IsZero() || anchor.After(now) {
-		// Missing/stale feed data: cannot reconstruct the regulatory clock
-		// start, so start from now rather than persist a nonsensical deadline.
-		return now.Add(window)
+	if anchor.After(now) {
+		return now.Add(window), anchor, anchorName
 	}
-	return anchor.Add(window)
+	// A deadline already in the past is returned as-is. The breach detector
+	// flips it to 'violated' and signs the event: surfacing real breaches is
+	// the point, and masking them was the original bug.
+	return anchor.Add(window), anchor, anchorName
 }
 
-// reconcileAutoSubmitted flips SLAs to "auto_submitted" when their ENISA
+// reconcileAutoSubmitted flips SLAs to "auto_submitted" when their
 // submission has since succeeded via the retry worker. Fix #5 made the initial
 // autosubmit flip integrity-correct (only on confirmed success in-flight), but
 // a submission that initially FAILED and later succeeded on retry leaves the
@@ -494,7 +591,7 @@ func (c *SlaCalculator) reconcileAutoSubmitted(ctx context.Context) {
 
 		submitted, err := c.enisaSubRepo.ListSubmittedByOrg(orgCtx)
 		if err != nil {
-			c.logger.Error("failed to list submitted ENISA submissions for reconciliation",
+			c.logger.Error("failed to list submitted records for reconciliation",
 				zap.String("org_id", org.ID.String()),
 				zap.Error(err))
 			continue
@@ -629,7 +726,7 @@ func (c *SlaCalculator) applySlaAutomation(ctx context.Context, sla *models.SlaT
 		// the submission is confirmed. The previous code flipped synchronously
 		// and then submitted in a detached goroutine, so a crash left the SLA
 		// falsely showing compliant. The EnisaSubmission row created by Submit
-		// (plus the ENISA retry worker) carries the durable intent; this status
+		// (plus the submission retry worker) carries the durable intent; this status
 		// is flipped ONLY once Submit actually succeeds. On failure the SLA
 		// keeps its prior status so it is never a false positive.
 		slaID := sla.ID
@@ -644,7 +741,7 @@ func (c *SlaCalculator) applySlaAutomation(ctx context.Context, sla *models.SlaT
 			defer cancel()
 			sub, err := c.enisaService.Submit(submitCtx, orgID, cve, nil)
 			if err != nil {
-				c.logger.Error("ENISA auto-submission failed; SLA left un-flipped (retry worker will retry the submission)",
+				c.logger.Error("automatic submission failed; SLA left un-flipped (retry worker will retry the submission)",
 					zap.String("sla_id", slaID.String()),
 					zap.String("org_id", orgID.String()),
 					zap.String("cve", cve),
@@ -657,14 +754,14 @@ func (c *SlaCalculator) applySlaAutomation(ctx context.Context, sla *models.SlaT
 			if err := c.db.WithContext(context.Background()).Model(&models.SlaTracking{}).
 				Where("id = ?", slaID).
 				Update("status", "auto_submitted").Error; err != nil {
-				c.logger.Warn("ENISA submission succeeded but failed to flip SLA status",
+				c.logger.Warn("submission succeeded but failed to flip SLA status",
 					zap.String("sla_id", slaID.String()),
 					zap.String("enisa_submission_id", submissionIDOr(sub)),
 					zap.Error(err),
 				)
 				return
 			}
-			c.logger.Info("ENISA auto-submission succeeded",
+			c.logger.Info("automatic submission succeeded",
 				zap.String("sla_id", slaID.String()),
 				zap.String("org_id", orgID.String()),
 				zap.String("cve", cve),

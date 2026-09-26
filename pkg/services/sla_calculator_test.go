@@ -18,8 +18,8 @@ import (
 )
 
 func TestSlaDeadlineConstants(t *testing.T) {
-	assert.Equal(t, 24*time.Hour, SlaDeadlineKEV)
-	assert.Equal(t, 72*time.Hour, SlaDeadlineCritical)
+	assert.Equal(t, 24*time.Hour, SlaHandlingExploitedWindow)
+	assert.Equal(t, 72*time.Hour, SlaHandlingCriticalWindow)
 }
 
 func TestSlaModeConstants(t *testing.T) {
@@ -47,8 +47,8 @@ func TestSlaAutomationModeValuesDistinct(t *testing.T) {
 	assert.Len(t, seen, 3)
 }
 
-func TestSlaDeadlineCriticalIsLongerThanKEV(t *testing.T) {
-	assert.Greater(t, SlaDeadlineCritical, SlaDeadlineKEV)
+func TestHandlingCriticalWindowIsLongerThanExploited(t *testing.T) {
+	assert.Greater(t, SlaHandlingCriticalWindow, SlaHandlingExploitedWindow)
 }
 
 // fakeAutoSubmitter is a test double for the autoSubmitter interface. It lets
@@ -128,65 +128,152 @@ func setupSlaAutomationTest(t *testing.T) (*models.SlaTracking, *SlaCalculator, 
 
 func ptrTime(t time.Time) *time.Time { return &t }
 
-// TestComputeDeadline verifies CRA Art. 10 deadlines are anchored to the vuln's
-// known/exploited date rather than the moment the calculator runs.
-func TestComputeDeadline(t *testing.T) {
-	// Fixed "now"-relative inputs: use real times well in the past so the
-	// anchors are unambiguously valid.
-	kevDate := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)       // exploited
-	discDate := time.Date(2024, 6, 2, 12, 0, 0, 0, time.UTC)      // discovered
-	expectedKEVDeadline := kevDate.Add(SlaDeadlineKEV)            // 24h after exploit
-	expectedCriticalDeadline := discDate.Add(SlaDeadlineCritical) // 72h after known
+// TestComputeDeadlineSeparatesHandlingWindowsFromArticle14Obligations verifies
+// the central correction: an internal remediation window and a CRA Article 14
+// reporting obligation are computed by different rules, anchored on different
+// events, and say which one they are.
+//
+// The previous model derived both from CVSS severity and the feed's own
+// timestamps, so a CVSS 9.8 with no evidence of exploitation produced something
+// that looked like a regulatory deadline and measured nothing the Regulation
+// requires.
+func TestComputeDeadlineSeparatesHandlingWindowsFromArticle14Obligations(t *testing.T) {
+	kevDate := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	discDate := time.Date(2024, 6, 2, 12, 0, 0, 0, time.UTC)
 
-	t.Run("KEV anchors to KevDateAdded", func(t *testing.T) {
+	t.Run("confirmed exploitation with evidenced awareness is an Article 14 obligation", func(t *testing.T) {
+		awareness := time.Date(2024, 6, 1, 9, 0, 0, 0, time.UTC)
+		vuln := models.Vulnerability{
+			DiscoveredAt:                discDate,
+			KevDateAdded:                ptrTime(kevDate),
+			AwarenessAt:                 ptrTime(awareness),
+			AwarenessSource:             "cert",
+			AwarenessEvidence:           "BSI CERT-Bund notification ref CERT-2026-0042",
+			ActiveExploitationConfirmed: true,
+		}
+		deadline, anchor, anchorName := computeDeadline(vuln, true)
+
+		assert.Equal(t, models.AnchorAwarenessAt, anchorName)
+		assert.Equal(t, awareness, anchor)
+		// 24h from awareness — NOT from the KEV feed date two days earlier, and
+		// not from our ingestion the next day.
+		assert.Equal(t, awareness.Add(24*time.Hour), deadline)
+		assert.NotEqual(t, kevDate.Add(SlaHandlingExploitedWindow), deadline,
+			"a third party's feed clock is not the manufacturer's awareness instant")
+		assert.NotEqual(t, discDate.Add(SlaHandlingExploitedWindow), deadline,
+			"our ingestion time is not the manufacturer's awareness instant")
+	})
+
+	t.Run("critical CVSS with no exploitation evidence is only a handling window", func(t *testing.T) {
+		// CVSS 9.8, in the KEV feed, but the manufacturer has made no
+		// evidenced determination and recorded no awareness. Not reportable.
+		score := 9.8
+		vuln := models.Vulnerability{
+			CvssScore: &score, DiscoveredAt: discDate, KevDateAdded: ptrTime(kevDate),
+			ActiveExploitationConfirmed: false,
+		}
+		_, _, anchorName := computeDeadline(vuln, false)
+		assert.Equal(t, models.AnchorDiscoveredAt, anchorName,
+			"a severity score is not a reportability trigger")
+	})
+
+	t.Run("confirmed exploitation without awareness evidence is refused, not defaulted", func(t *testing.T) {
+		// This is the fallback the old code had and the new code must not: a
+		// missing anchor must never be substituted, because a substituted
+		// anchor silently extends the deadline in the filer's favour.
+		awareness := time.Date(2024, 6, 1, 9, 0, 0, 0, time.UTC)
+		vuln := models.Vulnerability{
+			DiscoveredAt:                discDate,
+			AwarenessAt:                 ptrTime(awareness),
+			ActiveExploitationConfirmed: true,
+		}
+		_, _, anchorName := computeDeadline(vuln, true)
+		assert.NotEqual(t, models.AnchorAwarenessAt, anchorName)
+	})
+
+	t.Run("exploitation with a future awareness timestamp is refused", func(t *testing.T) {
+		// Clock skew must not hand the filer a fresh 24 hours for a past event.
+		future := time.Now().Add(48 * time.Hour)
+		vuln := models.Vulnerability{
+			AwarenessAt:                 ptrTime(future),
+			AwarenessEvidence:           "ref x",
+			ActiveExploitationConfirmed: true,
+		}
+		_, _, anchorName := computeDeadline(vuln, true)
+		assert.NotEqual(t, models.AnchorAwarenessAt, anchorName)
+	})
+
+	// --- handling windows ---------------------------------------------------
+
+	t.Run("KEV handling window anchors to the feed date", func(t *testing.T) {
 		vuln := models.Vulnerability{DiscoveredAt: discDate, KevDateAdded: ptrTime(kevDate)}
-		got := computeDeadline(vuln, true)
-		assert.Equal(t, expectedKEVDeadline, got, "KEV deadline must run from exploitation date")
+		deadline, _, anchorName := computeDeadline(vuln, true)
+		assert.Equal(t, models.AnchorKevDateAdded, anchorName)
+		assert.Equal(t, kevDate.Add(SlaHandlingExploitedWindow), deadline)
 	})
 
-	t.Run("KEV without KevDateAdded falls back to DiscoveredAt", func(t *testing.T) {
-		vuln := models.Vulnerability{DiscoveredAt: discDate, KevDateAdded: nil}
-		got := computeDeadline(vuln, true)
-		assert.Equal(t, discDate.Add(SlaDeadlineKEV), got)
+	t.Run("KEV without a feed date falls back to ingestion", func(t *testing.T) {
+		vuln := models.Vulnerability{DiscoveredAt: discDate}
+		deadline, _, _ := computeDeadline(vuln, true)
+		assert.Equal(t, discDate.Add(SlaHandlingExploitedWindow), deadline)
 	})
 
-	t.Run("critical anchors to DiscoveredAt regardless of KEV date", func(t *testing.T) {
-		vuln := models.Vulnerability{DiscoveredAt: discDate, KevDateAdded: ptrTime(kevDate)}
-		got := computeDeadline(vuln, false)
-		assert.Equal(t, expectedCriticalDeadline, got, "critical deadline must run from known date")
-	})
-
-	t.Run("past deadline is preserved (real breach surfaces, not masked)", func(t *testing.T) {
-		// Vuln discovered 10 days ago -> 72h deadline is already in the past.
+	t.Run("past handling deadline is preserved so a real breach surfaces", func(t *testing.T) {
 		old := time.Now().AddDate(0, 0, -10)
 		vuln := models.Vulnerability{DiscoveredAt: old}
-		got := computeDeadline(vuln, false)
-		assert.True(t, got.Before(time.Now()), "already-breached deadline must not be reset to the future")
-		assert.Equal(t, old.Add(SlaDeadlineCritical), got)
+		deadline, _, _ := computeDeadline(vuln, false)
+		assert.True(t, deadline.Before(time.Now()), "an already-breached deadline must not be reset")
+		assert.Equal(t, old.Add(SlaHandlingCriticalWindow), deadline)
 	})
 
-	t.Run("zero anchor falls back to now", func(t *testing.T) {
+	t.Run("zero ingestion timestamp falls back to now", func(t *testing.T) {
 		before := time.Now()
-		vuln := models.Vulnerability{} // zero DiscoveredAt, nil KevDateAdded
-		got := computeDeadline(vuln, false)
+		vuln := models.Vulnerability{}
+		deadline, _, _ := computeDeadline(vuln, false)
 		after := time.Now()
-		lo, hi := before.Add(SlaDeadlineCritical), after.Add(SlaDeadlineCritical)
-		assert.True(t, !got.Before(lo) && !got.After(hi), "zero anchor should fall back to ~now+window, got %v want [%v,%v]", got, lo, hi)
+		lo, hi := before.Add(SlaHandlingCriticalWindow), after.Add(SlaHandlingCriticalWindow)
+		assert.True(t, !deadline.Before(lo) && !deadline.After(hi),
+			"zero anchor should fall back to ~now+window, got %v", deadline)
 	})
 
-	t.Run("future anchor (clock skew / bad feed) clamps to now", func(t *testing.T) {
+	t.Run("future ingestion timestamp clamps to now", func(t *testing.T) {
 		future := time.Now().Add(48 * time.Hour)
 		vuln := models.Vulnerability{DiscoveredAt: future}
 		before := time.Now()
-		got := computeDeadline(vuln, false)
+		deadline, _, _ := computeDeadline(vuln, false)
 		after := time.Now()
-		// The clamp must discard the future anchor: the deadline should be
-		// ~now+window, NOT future+window (which would push the SLA out further).
-		unclamped := future.Add(SlaDeadlineCritical)
-		assert.True(t, got.Before(unclamped), "future anchor must be clamped (deadline earlier than unclamped future+window)")
-		lo, hi := before.Add(SlaDeadlineCritical), after.Add(SlaDeadlineCritical)
-		assert.True(t, !got.Before(lo) && !got.After(hi), "clamped deadline should be ~now+window, got %v want [%v,%v]", got, lo, hi)
+		unclamped := future.Add(SlaHandlingCriticalWindow)
+		assert.True(t, deadline.Before(unclamped), "future anchor must be clamped")
+		lo, hi := before.Add(SlaHandlingCriticalWindow), after.Add(SlaHandlingCriticalWindow)
+		assert.True(t, !deadline.Before(lo) && !deadline.After(hi),
+			"clamped deadline should be ~now+window, got %v", deadline)
 	})
+}
+
+// TestArticle14ObligationIsAnchoredOnAwarenessNotOnTheFeed pins the single
+// property the whole change exists for, as a standalone assertion.
+func TestArticle14ObligationIsAnchoredOnAwarenessNotOnTheFeed(t *testing.T) {
+	// The feed knew for three days before we did, and we ingested it a day
+	// after that. The manufacturer's obligation runs from when the
+	// manufacturer knew.
+	awareness := time.Now().Add(-6 * time.Hour)
+	feedDate := awareness.Add(-72 * time.Hour)
+	ingested := awareness.Add(-24 * time.Hour)
+
+	vuln := models.Vulnerability{
+		DiscoveredAt:                ingested,
+		KevDateAdded:                ptrTime(feedDate),
+		AwarenessAt:                 ptrTime(awareness),
+		AwarenessSource:             "exploit_evidence",
+		AwarenessEvidence:           "pcap-2026-09-20-0845",
+		ActiveExploitationConfirmed: true,
+	}
+	deadline, _, anchorName := computeDeadline(vuln, true)
+
+	assert.Equal(t, models.AnchorAwarenessAt, anchorName)
+	assert.Equal(t, awareness.Add(24*time.Hour), deadline)
+	assert.True(t, deadline.After(ingested.Add(24*time.Hour)),
+		"ingestion time is not awareness; using it would shorten the deadline")
 }
 
 // TestSlaCalculator_OwnsPendingToViolatedTransition verifies the calculator
@@ -329,25 +416,25 @@ func TestCveFromCsafDoc(t *testing.T) {
 // discovered_at + 72h, not now + 72h. Using now + 72h would give the
 // operator 5 extra days, violating the mandated reporting window.
 //
-// The deadline = discovered_at + SlaDeadlineKEV (24h) or SlaDeadlineCritical (72h).
+// The deadline = discovered_at + SlaHandlingExploitedWindow (24h) or SlaHandlingCriticalWindow (72h).
 func TestSlaDeadlineUsesDiscoveredAt(t *testing.T) {
 	// Simulate a CVE discovered 5 days ago
 	discoveredAt := time.Now().Add(-5 * 24 * time.Hour)
 
 	// KEV: deadline should be discovered_at + 24h = 4 days ago
-	kevDeadline := discoveredAt.Add(SlaDeadlineKEV)
-	expectedKEV := time.Now().Add(-4*24*time.Hour + SlaDeadlineKEV - 5*24*time.Hour)
+	kevDeadline := discoveredAt.Add(SlaHandlingExploitedWindow)
+	expectedKEV := time.Now().Add(-4*24*time.Hour + SlaHandlingExploitedWindow - 5*24*time.Hour)
 	_ = expectedKEV // sanity: discoveredAt + 24h
 	assert.True(t, kevDeadline.Before(time.Now().Add(-3*24*time.Hour)),
 		"KEV deadline for a CVE discovered 5 days ago should already be in the past (4d ago)")
 
 	// Critical: deadline should be discovered_at + 72h = 3 days ago (ALREADY VIOLATED)
-	criticalDeadline := discoveredAt.Add(SlaDeadlineCritical)
+	criticalDeadline := discoveredAt.Add(SlaHandlingCriticalWindow)
 	assert.True(t, criticalDeadline.Before(time.Now().Add(-2*24*time.Hour)),
 		"Critical deadline for a CVE discovered 5 days ago should be ~3 days in the past")
 
 	// Verify that the deadline is NOT time.Now() + SLA
-	notNow := time.Now().Add(SlaDeadlineCritical)
+	notNow := time.Now().Add(SlaHandlingCriticalWindow)
 	assert.NotEqual(t, notNow, criticalDeadline,
 		"SLA deadline must NOT be calculated from time.Now()")
 
@@ -365,7 +452,7 @@ func TestSlaDeadlineNotFromNow(t *testing.T) {
 	discoveredAt := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
 
 	// Correct: deadline from discovered_at
-	correctDeadline := discoveredAt.Add(SlaDeadlineKEV) // 2026-05-02 12:00 UTC
+	correctDeadline := discoveredAt.Add(SlaHandlingExploitedWindow) // 2026-05-02 12:00 UTC
 
 	// Wrong: deadline from now
 	wrongDeadline := time.Now().Add(SlaDeadlineKEV) // ~24h from now
