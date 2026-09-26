@@ -35,7 +35,9 @@ func setupTestDB(t *testing.T) *gorm.DB {
 		pdf_template text DEFAULT 'generic', sla_tracking_mode text DEFAULT 'per_cve',
 		tier text NOT NULL DEFAULT 'standard', sla_mode text NOT NULL DEFAULT 'alerts_only',
 		multi_tenant_mode text DEFAULT 'shared', enisa_api_endpoint text,
-		enisa_api_key_encrypted text, support_period_months integer DEFAULT 60,
+		enisa_api_key_encrypted text, csirt_endpoint text,
+		nis2_member_state text, nis2_sector text, nis2_entity_class text,
+		support_period_months integer DEFAULT 60,
 		support_start_date datetime, support_end_date datetime,
 		created_at datetime, updated_at datetime
 	)`).Error

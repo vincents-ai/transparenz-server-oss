@@ -12,9 +12,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vincents-ai/transparenz-server-oss/internal/testutil"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/middleware"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/repository"
-	"github.com/vincents-ai/transparenz-server-oss/internal/testutil"
 	"go.uber.org/zap"
 )
 
@@ -137,13 +137,23 @@ func TestUpdateSupportPeriod_InvalidJSON(t *testing.T) {
 }
 
 func TestUpdateSupportPeriod_EmptyBodyAcceptedAsUndeclared(t *testing.T) {
-	// Commit 78a8b92 made SupportPeriodMonths=0 a valid "undeclared" value.
-	// The request struct has no binding:"required" tag, so an empty body `{}`
-	// unmarshals to Months=0, which now validates successfully and returns 200
-	// (the handler persists 0 = undeclared). Previously this returned 400; the
-	// test was updated when the validation rule changed. (If "missing field"
-	// should still error independently of the value, that needs a *int field +
-	// binding:"required" — a separate product decision, not done here.)
+	// SupportPeriodMonths=0 is a valid "undeclared" value: an organisation that
+	// has declared no support period is different from one that has declared
+	// support, and the model has to be able to express that.
+	//
+	// A MISSING months field is a different thing again, and is rejected. The
+	// request field is *int with binding:"required", so:
+	//
+	//   - {}                    -> 400, the caller sent no declaration at all
+	//   - {"months": 0}         -> 200, an explicit declaration of "undeclared"
+	//   - {"months": 24}        -> 200
+	//
+	// This is also load-bearing for safety rather than semantics alone: the
+	// handler dereferences req.Months, so without the required binding an empty
+	// body would nil-panic rather than return 400.
+	//
+	// The test name predates this distinction and is retained to avoid churn;
+	// the behaviour it asserts is the missing-field rejection.
 	router, _ := setupOrgTestRouter(t)
 
 	body := `{}`
@@ -153,7 +163,30 @@ func TestUpdateSupportPeriod_EmptyBodyAcceptedAsUndeclared(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, http.StatusBadRequest, w.Code,
+		"a missing months field is a client error, not a declaration of zero")
+}
+
+// TestUpdateSupportPeriod_ZeroIsNotTheSameAsMissing is the companion to
+// TestUpdateSupportPeriod_ZeroMonths: an explicit zero is accepted, a missing
+// field is not. Conflating the two would silently undeclare a support period
+// for a client that simply sent a malformed request.
+func TestUpdateSupportPeriod_ZeroIsNotTheSameAsMissing(t *testing.T) {
+	router, _ := setupOrgTestRouter(t)
+
+	zero := httptest.NewRequest(http.MethodPut, "/api/organization/support-period",
+		bytes.NewBufferString(`{"months":0}`))
+	zero.Header.Set("Content-Type", "application/json")
+	zeroRec := httptest.NewRecorder()
+	router.ServeHTTP(zeroRec, zero)
+	assert.Equal(t, http.StatusOK, zeroRec.Code, "an explicit zero is a valid declaration")
+
+	missing := httptest.NewRequest(http.MethodPut, "/api/organization/support-period",
+		bytes.NewBufferString(`{}`))
+	missing.Header.Set("Content-Type", "application/json")
+	missingRec := httptest.NewRecorder()
+	router.ServeHTTP(missingRec, missing)
+	assert.Equal(t, http.StatusBadRequest, missingRec.Code)
 }
 
 func TestUpdateSupportPeriod_ZeroMonths(t *testing.T) {

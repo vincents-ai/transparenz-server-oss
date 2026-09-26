@@ -66,7 +66,7 @@ func sbomTestRouter(t *testing.T, db *gorm.DB, maxSize int64) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewSbomRepository(db)
-	handler := NewSbomHandler(repo, maxSize, nil)
+	handler := NewSbomHandler(repo, maxSize, nil, nil)
 
 	router := gin.New()
 	orgID := uuid.New()
@@ -475,7 +475,7 @@ func TestUpload_InsertsIntoPublicSBOMs(t *testing.T) {
 
 	var capturedUpload *models.SbomUpload
 	repo := repository.NewSbomRepository(db)
-	handler := NewSbomHandler(repo, 10*1024*1024, nil)
+	handler := NewSbomHandler(repo, 10*1024*1024, nil, nil)
 	handler.insertIntoPublicSBOMs = func(ctx context.Context, upload *models.SbomUpload) error {
 		capturedUpload = upload
 		return nil
@@ -571,9 +571,9 @@ func TestTenantIsolation(t *testing.T) {
 	orgB := uuid.New()
 
 	repoA := repository.NewSbomRepository(db)
-	handlerA := NewSbomHandler(repoA, 10*1024*1024, nil)
+	handlerA := NewSbomHandler(repoA, 10*1024*1024, nil, nil)
 	repoB := repository.NewSbomRepository(db)
-	NewSbomHandler(repoB, 10*1024*1024, nil)
+	NewSbomHandler(repoB, 10*1024*1024, nil, nil)
 
 	ctxA := middleware.ContextWithOrgID(context.Background(), orgA)
 	uploadA := &models.SbomUpload{

@@ -117,7 +117,9 @@ func runServer() {
 
 	// Handlers
 	scanHandler := rest.NewScanHandlerWithVulns(scanService, scanVulnRepo, logger)
-	sbomHandler := rest.NewSbomHandler(sbomRepo, int64(cfg.MaxSBOMSize), alertHub)
+	// No telemetry service is wired in this distribution, so the handler
+	// receives nil and simply skips emitting upload events.
+	sbomHandler := rest.NewSbomHandler(sbomRepo, int64(cfg.MaxSBOMSize), nil, alertHub)
 	vulnHandler := rest.NewVulnerabilityHandler(vulnRepo, grcRepo)
 	complianceHandler := rest.NewComplianceHandler(slaRepo, vulnRepo, eventRepo, orgRepo, grcRepo, logger)
 	orgHandler := rest.NewOrganizationHandler(orgRepo, logger)

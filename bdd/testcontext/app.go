@@ -61,7 +61,7 @@ func BuildApp(ctx context.Context, db *gorm.DB, logger *zap.Logger) (*gin.Engine
 	alertHandler := rest.NewAlertHandler(alertHub, testJWTSecret)
 	enisaHandler := rest.NewENISAHandler(interfaces.ENISASubmitter(enisaService), subRepo, logger)
 	scanHandler := rest.NewScanHandlerWithVulns(scanService, scanVulnRepo, logger)
-	sbomHandler := rest.NewSbomHandler(sbomRepo, int64(10*1024*1024), alertHub)
+	sbomHandler := rest.NewSbomHandler(sbomRepo, int64(10*1024*1024), nil, alertHub)
 	vulnHandler := rest.NewVulnerabilityHandler(vulnRepo, grcRepo)
 	complianceHandler := rest.NewComplianceHandler(slaRepo, vulnRepo, eventRepo, orgRepo, grcRepo, logger)
 	orgHandler := rest.NewOrganizationHandler(orgRepo, logger)

@@ -49,11 +49,20 @@ type SbomHandler struct {
 	telemetryService      *services.TelemetryService
 	alertHub              *services.AlertHub
 	insertIntoPublicSBOMs func(ctx context.Context, upload *models.SbomUpload) error
-	componentExtractor    *services.ComponentExtractor
+
+	// Note: there is deliberately no componentExtractor field here.
+	//
+	// Component extraction (the materialised compliance.sbom_components table)
+	// is a scale feature of the commercial server. This distribution matches
+	// vulnerabilities through compliance.scan_vulnerabilities instead, and has
+	// no such table. A field for it was previously added by a commit authored
+	// against the commercial tree and applied here, which left this package
+	// referencing a type that does not exist in this module and broke the build.
+	// Do not re-add it here without also porting the table and its migration.
 }
 
 // NewSbomHandler creates a handler for SBOM upload operations.
-func NewSbomHandler(sbomRepo *repository.SbomRepository, maxSize int64, telemetryService *services.TelemetryService, alertHub *services.AlertHub, componentExtractor *services.ComponentExtractor) *SbomHandler {
+func NewSbomHandler(sbomRepo *repository.SbomRepository, maxSize int64, telemetryService *services.TelemetryService, alertHub *services.AlertHub) *SbomHandler {
 	return &SbomHandler{
 		sbomRepo:         sbomRepo,
 		maxSize:          maxSize,
@@ -62,7 +71,6 @@ func NewSbomHandler(sbomRepo *repository.SbomRepository, maxSize int64, telemetr
 		insertIntoPublicSBOMs: func(ctx context.Context, upload *models.SbomUpload) error {
 			return sbomRepo.InsertIntoPublic(ctx, upload)
 		},
-		componentExtractor: componentExtractor,
 	}
 }
 
@@ -105,12 +113,6 @@ func (h *SbomHandler) Upload(c *gin.Context) {
 	if strings.HasSuffix(fullExt, ".cdx.json") || strings.HasSuffix(fullExt, ".cdx.xml") {
 		ext = ".cdx"
 	}
-	format, ok := extensionToFormat(ext, header.Header.Get("Content-Type"), data)
-	if !ok {
-		api.BadRequest(c, "unsupported file format: must be SPDX or CycloneDX (JSON or XML)")
-		return
-	}
-
 	tmpFile, err := os.CreateTemp("", "sbom-upload-*")
 	if err != nil {
 		api.InternalError(c, "failed to create temp file")
@@ -150,6 +152,17 @@ func (h *SbomHandler) Upload(c *gin.Context) {
 	}
 	if err != nil {
 		api.InternalError(c, "failed to read temp file")
+		return
+	}
+
+	// Detect the format now that the body is available. extensionToFormat falls
+	// back to inspecting the document when the filename extension and content
+	// type are ambiguous, which is what lets a correctly-formatted SPDX or
+	// CycloneDX upload through regardless of how the client named the file. It
+	// must therefore run after the read, not before.
+	format, ok := extensionToFormat(ext, header.Header.Get("Content-Type"), data)
+	if !ok {
+		api.BadRequest(c, "unsupported file format: must be SPDX or CycloneDX (JSON or XML)")
 		return
 	}
 
@@ -212,10 +225,6 @@ func (h *SbomHandler) Upload(c *gin.Context) {
 				Message:   "New SBOM uploaded: " + upload.Filename,
 				Timestamp: time.Now(),
 			})
-		}
-		// Extract components into indexed table for fast CVE matching
-		if h.componentExtractor != nil {
-			h.componentExtractor.ExtractAndStore(middleware.ContextWithOrgID(context.Background(), orgUUID), orgUUID, upload.ID, data)
 		}
 	}()
 

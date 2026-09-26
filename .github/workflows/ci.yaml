@@ -20,6 +20,78 @@ jobs:
           version: v2.0
           args: --timeout=5m
 
+  # Regulatory conformance gate.
+  #
+  # This is separate from the unit-test job on purpose. The regulatory packages
+  # are pure and fast, and a failure here means something specific and serious:
+  # the reporting schema we hold has diverged from the ENISA SRP glossary it was
+  # transcribed from, or a required reporting field can no longer be
+  # represented internally.
+  #
+  # Both are release-blocking for a manufacturer relying on this product to
+  # demonstrate what it reported and why, so they get their own named job rather
+  # than disappearing into a generic test failure. Drop the `-v` if the log
+  # becomes unwieldy as fields are added.
+  regulatory-conformance:
+    name: Regulatory conformance (ENISA SRP)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Download dependencies
+        run: go mod download
+      - name: ENISA SRP schema and field conformance
+        run: go test -v -count=1 ./pkg/regulatory/...
+      - name: Regulatory clock conformance
+        run: >
+          go test -v -count=1 -run 'Deadline|FinalReport|Clock|DST|Month|Awareness'
+          ./pkg/regulatory/... ./pkg/services/...
+
+  # CRA reporting persistence.
+  #
+  # The CRA tables use PostgreSQL features the unit-test schema cannot express:
+  # text[] columns, CHECK constraints over cardinality(), PL/pgSQL trigger
+  # functions enforcing append-only audit logs, and an ON CONFLICT upsert.
+  # Testing them against SQLite would test a different schema than the one that
+  # ships — in particular the append-only guarantees on the decision log and
+  # the awareness audit trail would simply not exist, and the tests would pass
+  # while proving nothing.
+  cra-persistence:
+    name: CRA reporting persistence
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Download dependencies
+        run: go mod download
+      - name: Apply the CRA reporting migration
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE SCHEMA compliance;" \
+                                     -c "CREATE TABLE compliance.organizations (id UUID PRIMARY KEY DEFAULT gen_random_uuid());"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/000045_cra_reports.up.sql
+      - name: CRA repository against PostgreSQL
+        run: go test -v -count=1 -tags integration -run 'TestCRARepository' ./tests/integration/...
+
   test:
     name: Test
     runs-on: ubuntu-latest
