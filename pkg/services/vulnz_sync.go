@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/vincents-ai/vulnz/pkg/api"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/repository"
+	"github.com/vincents-ai/vulnz/pkg/api"
 	"go.uber.org/zap"
 	"gorm.io/datatypes"
 )
@@ -117,10 +117,10 @@ func (s *VulnzSyncService) SyncAll(ctx context.Context) error {
 	}
 
 	syncResult := SyncResult{
-		SyncedCVEs:   syncedCVEs,
-		Duration:     time.Since(syncStart),
-		TotalSynced:  totalSynced,
-		TotalErrors:  totalErrors,
+		SyncedCVEs:  syncedCVEs,
+		Duration:    time.Since(syncStart),
+		TotalSynced: totalSynced,
+		TotalErrors: totalErrors,
 	}
 
 	s.logger.Info("vulnz sync completed",

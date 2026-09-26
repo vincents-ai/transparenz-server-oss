@@ -284,10 +284,10 @@ func TestScanRecordToProduct(t *testing.T) {
 // characters and replaces everything else.
 func TestSanitizeProductID(t *testing.T) {
 	cases := map[string]string{
-		"openssl_3.0.7":             "openssl_3.0.7",
-		"pkg:maven/a/b@1.2":         "pkg:maven/a/b@1.2",
-		"name with spaces":          "name_with_spaces",
-		"weird*chars!here":         "weird_chars_here",
+		"openssl_3.0.7":     "openssl_3.0.7",
+		"pkg:maven/a/b@1.2": "pkg:maven/a/b@1.2",
+		"name with spaces":  "name_with_spaces",
+		"weird*chars!here":  "weird_chars_here",
 	}
 	for in, want := range cases {
 		if got := sanitizeProductID(in); got != want {

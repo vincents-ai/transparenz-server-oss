@@ -14,10 +14,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/vincents-ai/transparenz-server-oss/internal/testutil"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/jobs"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/repository"
-	"github.com/vincents-ai/transparenz-server-oss/internal/testutil"
 	"go.uber.org/zap"
 )
 

@@ -39,10 +39,10 @@ func (a *SbomWebhookActions) Scan(value interface{}) error {
 
 // SbomWebhook represents an inbound SBOM webhook configuration.
 type SbomWebhook struct {
-	ID            uuid.UUID          `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
-	OrgID         uuid.UUID          `gorm:"type:uuid;not null;index" json:"org_id"`
-	Name          string             `gorm:"not null" json:"name"`
-	SecretHash    string             `gorm:"not null" json:"-"`
+	ID         uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	OrgID      uuid.UUID `gorm:"type:uuid;not null;index" json:"org_id"`
+	Name       string    `gorm:"not null" json:"name"`
+	SecretHash string    `gorm:"not null" json:"-"`
 	// SigningSecret is stored in plaintext because it is needed at runtime to verify
 	// incoming webhook HMAC signatures. See GreenboneWebhook for same pattern.
 	SigningSecret string             `gorm:"default:''" json:"-"`

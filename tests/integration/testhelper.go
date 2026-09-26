@@ -35,9 +35,9 @@ const (
 	authServicePort   = "18090"
 
 	// env vars for custom paths (useful in nix develop)
-	envServerRoot   = "INTEGRATION_SERVER_ROOT"
-	envAuthRoot     = "INTEGRATION_AUTH_ROOT"
-	envBSIDataPath  = "INTEGRATION_BSI_DATA_PATH"
+	envServerRoot  = "INTEGRATION_SERVER_ROOT"
+	envAuthRoot    = "INTEGRATION_AUTH_ROOT"
+	envBSIDataPath = "INTEGRATION_BSI_DATA_PATH"
 
 	// Default evidence subdirectory name
 	evidenceDirName = "evidence"

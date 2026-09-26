@@ -129,10 +129,10 @@ func MustGenerateCycloneDXSBOM(appName, appVersion string, components []CycloneD
 func GenerateSPDXSBOM(t *testing.T) []byte {
 	t.Helper()
 	sbom := map[string]interface{}{
-		"spdxVersion":   "SPDX-2.3",
-		"dataLicense":   "CC0-1.0",
-		"SPDXID":        "SPDXRef-DOCUMENT",
-		"name":          "test-app",
+		"spdxVersion":       "SPDX-2.3",
+		"dataLicense":       "CC0-1.0",
+		"SPDXID":            "SPDXRef-DOCUMENT",
+		"name":              "test-app",
 		"documentNamespace": "https://example.com/test-app",
 		"creationInfo": map[string]interface{}{
 			"created":  time.Now().UTC().Format("2006-01-02T15:04:05Z"),

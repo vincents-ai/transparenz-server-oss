@@ -13,11 +13,11 @@ import (
 // PipelineLatency tracks timing through the vulnerability disclosure pipeline.
 // The pipeline stages are:
 //
-//   ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-//   │  1. Feed     │────▶│  2. Match    │────▶│  3. SLA      │────▶│  4. Alert    │────▶│  5. Disclose │
-//   │  Ingest      │     │  (Scan)      │     │  Calculate   │     │  (AlertSvc)  │     │  (ENISA)     │
-//   └──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
-//        T0                  T1                  T2                   T3                   T4
+//	┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+//	│  1. Feed     │────▶│  2. Match    │────▶│  3. SLA      │────▶│  4. Alert    │────▶│  5. Disclose │
+//	│  Ingest      │     │  (Scan)      │     │  Calculate   │     │  (AlertSvc)  │     │  (ENISA)     │
+//	└──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
+//	     T0                  T1                  T2                   T3                   T4
 //
 // Key metrics:
 //
@@ -325,7 +325,7 @@ func TestENISAExhaustion(t *testing.T) {
 	// Commercial (15m sync + auto-rescan):
 	commericalStages := PipelineLatency{
 		FeedIngestedAt:  time.Now(),
-		VulnMatchedAt:   time.Now().Add(15 * time.Minute),   // commercial: 15m sync + auto-rescan
+		VulnMatchedAt:   time.Now().Add(15 * time.Minute), // commercial: 15m sync + auto-rescan
 		SLACalculatedAt: time.Now().Add(15*time.Minute + 1*time.Minute),
 		AlertSentAt:     time.Now().Add(15*time.Minute + 90*time.Second),
 	}
@@ -339,8 +339,8 @@ func TestENISAExhaustion(t *testing.T) {
 	}
 
 	configs := []struct {
-		name    string
-		stages  PipelineLatency
+		name   string
+		stages PipelineLatency
 	}{
 		{"Commercial (15m)", commericalStages},
 		{"OSS (6h)", ossStages},

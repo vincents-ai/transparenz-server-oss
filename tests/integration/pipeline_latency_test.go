@@ -33,11 +33,11 @@ import (
 //	   T0           T1            T2             T3       T4
 //
 // What we measure:
-//   1. Feed→Match: How long from new CVE in feed to vulnerability linked to SBOM
-//   2. Match→SLA:  How long from vuln linked to SLA deadline set
-//   3. SLA→Alert:  How long from SLA set to operator notified
-//   4. Feed→Report: End-to-end from CVE known to disclosure filed
-//   5. SLA Erosion: How much of the SLA window the pipeline consumes
+//  1. Feed→Match: How long from new CVE in feed to vulnerability linked to SBOM
+//  2. Match→SLA:  How long from vuln linked to SLA deadline set
+//  3. SLA→Alert:  How long from SLA set to operator notified
+//  4. Feed→Report: End-to-end from CVE known to disclosure filed
+//  5. SLA Erosion: How much of the SLA window the pipeline consumes
 type PipelineConfig struct {
 	ServerURL string
 	JWT       string
@@ -119,9 +119,9 @@ func TestPipelineLatency_ScanDuration(t *testing.T) {
 			"name":        "pipeline-test",
 			"packages": []map[string]interface{}{
 				{
-					"SPDXID":         "SPDXRef-Package-log4j",
-					"name":           "org.apache.logging.log4j:log4j-core",
-					"versionInfo":    "2.14.1",
+					"SPDXID":           "SPDXRef-Package-log4j",
+					"name":             "org.apache.logging.log4j:log4j-core",
+					"versionInfo":      "2.14.1",
 					"downloadLocation": "https://repo1.maven.org/maven2/org/apache/logging/log4j/log4j-core/2.14.1/log4j-core-2.14.1.jar",
 					"licenseConcluded": "Apache-2.0",
 				},
@@ -340,9 +340,9 @@ func TestPipelineLatency_ConfiguredIntervals(t *testing.T) {
 	// These are the production defaults from config.go:
 	intervals := map[string]time.Duration{
 		"VULNZ_SYNC_INTERVAL (feed fetch)":     6 * time.Hour,
-		"JOB_QUEUE_POLL_INTERVAL (scan queue)":  5 * time.Second,
-		"SLA_TICK_INTERVAL (deadline calc)":     1 * time.Minute,
-		"ALERT_TICK_INTERVAL (notifications)":   30 * time.Second,
+		"JOB_QUEUE_POLL_INTERVAL (scan queue)": 5 * time.Second,
+		"SLA_TICK_INTERVAL (deadline calc)":    1 * time.Minute,
+		"ALERT_TICK_INTERVAL (notifications)":  30 * time.Second,
 	}
 
 	for name, interval := range intervals {

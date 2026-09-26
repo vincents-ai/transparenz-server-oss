@@ -12,7 +12,7 @@ import (
 
 // PDFService generates BSI TR-03116 compliance PDF reports.
 type PDFService struct {
-	logger  *zap.Logger
+	logger   *zap.Logger
 	branding PDFBranding
 }
 

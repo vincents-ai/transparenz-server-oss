@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
 	"github.com/vincents-ai/transparenz-server-oss/internal/testutil"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
 )
 
 func TestTelemetryRepository_CreateAndGetByOrgID(t *testing.T) {
@@ -101,11 +101,11 @@ func TestTelemetryRepository_GetByMetricsTokenPrefix(t *testing.T) {
 	tokenHash := "metrics-token-" + uuid.New().String()
 	tokenPrefix := "prefix123456789" // 16-char prefix
 	config := &models.OrgTelemetryConfig{
-		ID:                  uuid.New(),
-		Provider:            "prometheus",
-		MetricsTokenHash:    tokenHash,
-		MetricsTokenPrefix:  tokenPrefix,
-		Active:              true,
+		ID:                 uuid.New(),
+		Provider:           "prometheus",
+		MetricsTokenHash:   tokenHash,
+		MetricsTokenPrefix: tokenPrefix,
+		Active:             true,
 	}
 	if err := repo.Create(ctx, org.ID, config); err != nil {
 		t.Fatalf("Create failed: %v", err)

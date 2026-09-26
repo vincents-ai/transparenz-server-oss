@@ -17,11 +17,11 @@ func Test_VEX_CreateAndList(t *testing.T) {
 
 	t.Log("=== Step 1: Create VEX statement ===")
 	vexReq := map[string]interface{}{
-		"cve":           "CVE-2021-44228",
-		"product_id":    "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1",
-		"justification": "vulnerable_code_not_in_execute_path",
+		"cve":              "CVE-2021-44228",
+		"product_id":       "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1",
+		"justification":    "vulnerable_code_not_in_execute_path",
 		"impact_statement": "The affected log4j component is not used in any code path",
-		"confidence":    "high",
+		"confidence":       "high",
 	}
 
 	vexResp := env.AuthedPost("/api/vex", vexReq)
@@ -50,10 +50,10 @@ func Test_VEX_CreateAndList(t *testing.T) {
 		assert.GreaterOrEqual(t, vexList.Total, 1)
 
 		env.WriteJSONEvidence("vex-lifecycle.json", map[string]interface{}{
-			"vex_id":       vexID,
-			"cve":          "CVE-2021-44228",
-			"total_vex":    vexList.Total,
-			"status":       "created",
+			"vex_id":    vexID,
+			"cve":       "CVE-2021-44228",
+			"total_vex": vexList.Total,
+			"status":    "created",
 		})
 	} else {
 		t.Logf("VEX create returned status %d (endpoint may need specific payload)", vexResp.StatusCode)

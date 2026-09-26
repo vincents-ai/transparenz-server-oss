@@ -41,10 +41,10 @@ func (a *GreenboneWebhookActions) Scan(value interface{}) error {
 
 // GreenboneWebhook represents an inbound Greenbone webhook configuration.
 type GreenboneWebhook struct {
-	ID            uuid.UUID               `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
-	OrgID         uuid.UUID               `gorm:"type:uuid;not null;index" json:"org_id"`
-	Name          string                  `gorm:"not null" json:"name"`
-	SecretHash    string                  `gorm:"not null" json:"-"`
+	ID         uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	OrgID      uuid.UUID `gorm:"type:uuid;not null;index" json:"org_id"`
+	Name       string    `gorm:"not null" json:"name"`
+	SecretHash string    `gorm:"not null" json:"-"`
 	// SigningSecret is stored in plaintext because it is needed at runtime to verify
 	// incoming webhook HMAC signatures. If database-level secret protection is required,
 	// derive signing keys server-side using HMAC(server_key, webhook_id) instead of storing

@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/vincents-ai/transparenz-server-oss/internal/testutil"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/middleware"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
-	"github.com/vincents-ai/transparenz-server-oss/internal/testutil"
 )
 
 func TestVexPublicationRepository_CreateAndList(t *testing.T) {

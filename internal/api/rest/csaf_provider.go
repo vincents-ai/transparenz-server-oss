@@ -60,15 +60,15 @@ func NewCSAFProviderHandler(
 
 // CSAFProviderMetadata is the provider-metadata.json document per CSAF v2.0 §7.1.
 type CSAFProviderMetadata struct {
-	CanonicalURL          string             `json:"canonical_url"`
-	Distributor           CSAFDistributor    `json:"distributor"`
-	LastUpdated           string             `json:"last_updated"`
-	ListOnCSAFAggregators bool               `json:"list_on_CSAF_aggregators"`
-	MetadataVersion       string             `json:"metadata_version"`
-	Mirrors               []string           `json:"mirrors,omitempty"`
-	Publisher             CSAFPublisherMeta  `json:"publisher"`
-	Role                  string             `json:"role"`
-	RollingWindow         CSAFRollingWindow  `json:"rolling_window"`
+	CanonicalURL          string            `json:"canonical_url"`
+	Distributor           CSAFDistributor   `json:"distributor"`
+	LastUpdated           string            `json:"last_updated"`
+	ListOnCSAFAggregators bool              `json:"list_on_CSAF_aggregators"`
+	MetadataVersion       string            `json:"metadata_version"`
+	Mirrors               []string          `json:"mirrors,omitempty"`
+	Publisher             CSAFPublisherMeta `json:"publisher"`
+	Role                  string            `json:"role"`
+	RollingWindow         CSAFRollingWindow `json:"rolling_window"`
 }
 
 type CSAFDistributor struct {
@@ -211,10 +211,10 @@ func (h *CSAFProviderHandler) serveProviderMetadata(c *gin.Context, orgID uuid.U
 
 	meta := CSAFProviderMetadata{
 		CanonicalURL:          wellKnownBase + "/provider-metadata.json",
-		Distributor:            CSAFDistributor{Name: org.Name},
-		LastUpdated:            now,
-		ListOnCSAFAggregators:  false,
-		MetadataVersion:        "2.0",
+		Distributor:           CSAFDistributor{Name: org.Name},
+		LastUpdated:           now,
+		ListOnCSAFAggregators: false,
+		MetadataVersion:       "2.0",
 		Publisher: CSAFPublisherMeta{
 			Category:       "vendor",
 			Name:           org.Name,

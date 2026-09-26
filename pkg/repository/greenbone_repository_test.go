@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
 	"github.com/vincents-ai/transparenz-server-oss/internal/testutil"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
 )
 
 func TestGreenboneRepository_CreateAndGetWebhookByID(t *testing.T) {

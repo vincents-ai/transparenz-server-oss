@@ -45,12 +45,12 @@ func (r *TelemetryRepository) GetByOrgID(ctx context.Context, orgID uuid.UUID) (
 
 func (r *TelemetryRepository) Update(ctx context.Context, config *models.OrgTelemetryConfig) error {
 	return r.db.WithContext(ctx).Model(config).Where("org_id = ?", config.OrgID).Updates(map[string]interface{}{
-		"provider":           config.Provider,
-		"otel_endpoint":      config.OtelEndpoint,
-		"otel_headers":       config.OtelHeaders,
-		"metrics_token_hash":  config.MetricsTokenHash,
+		"provider":             config.Provider,
+		"otel_endpoint":        config.OtelEndpoint,
+		"otel_headers":         config.OtelHeaders,
+		"metrics_token_hash":   config.MetricsTokenHash,
 		"metrics_token_prefix": config.MetricsTokenPrefix,
-		"active":             config.Active,
+		"active":               config.Active,
 	}).Error
 }
 

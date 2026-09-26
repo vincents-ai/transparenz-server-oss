@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vincents-ai/vulnz/pkg/api"
 	"github.com/vincents-ai/transparenz-server-oss/internal/testutil"
+	"github.com/vincents-ai/vulnz/pkg/api"
 )
 
 // ---------------------------------------------------------------------------

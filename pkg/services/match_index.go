@@ -30,7 +30,7 @@ type feedMatchEntry struct {
 type MatchIndex struct {
 	mu      sync.RWMutex
 	index   map[string][]feedMatchEntry // exact name → entries
-	prefix  map[string][]string          // prefix → list of keys containing it
+	prefix  map[string][]string         // prefix → list of keys containing it
 	builtAt time.Time
 	ttl     time.Duration
 }

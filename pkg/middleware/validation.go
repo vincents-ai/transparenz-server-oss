@@ -23,15 +23,15 @@ func IsPrivateIP(host string) bool {
 		return false // hostname, not an IP literal — allow
 	}
 	privateNets := []string{
-		"127.0.0.0/8",   // loopback
-		"10.0.0.0/8",    // RFC 1918
-		"172.16.0.0/12", // RFC 1918
+		"127.0.0.0/8",    // loopback
+		"10.0.0.0/8",     // RFC 1918
+		"172.16.0.0/12",  // RFC 1918
 		"192.168.0.0/16", // RFC 1918
 		"169.254.0.0/16", // link-local
-		"0.0.0.0/8",     // "this" network
-		"::1/128",       // IPv6 loopback
-		"fc00::/7",      // IPv6 unique-local (RFC 4193)
-		"fe80::/10",     // IPv6 link-local
+		"0.0.0.0/8",      // "this" network
+		"::1/128",        // IPv6 loopback
+		"fc00::/7",       // IPv6 unique-local (RFC 4193)
+		"fe80::/10",      // IPv6 link-local
 	}
 	for _, cidr := range privateNets {
 		_, network, _ := net.ParseCIDR(cidr)

@@ -6,8 +6,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
 )
 
 // ginCtxWithOrg creates a *gin.Context with the given orgID set.

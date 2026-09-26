@@ -31,11 +31,11 @@ const SharedTokenAudience = "transparenz-suite"
 // It includes user identity, organization/tenant information, and role-based permissions.
 // The union claim set is shared with billing-auth-service for unified auth.
 type Claims struct {
-	Sub       string   `json:"sub"`      // User UUID
-	Email     string   `json:"email"`    // User email
-	OrgID     string   `json:"org_id"`   // Tenant/Organization UUID
-	OrgSlug   string   `json:"org_slug"` // Human-readable tenant identifier
-	Roles     []string `json:"roles"`    // User roles (admin, compliance_officer, etc.)
+	Sub       string   `json:"sub"`                  // User UUID
+	Email     string   `json:"email"`                // User email
+	OrgID     string   `json:"org_id"`               // Tenant/Organization UUID
+	OrgSlug   string   `json:"org_slug"`             // Human-readable tenant identifier
+	Roles     []string `json:"roles"`                // User roles (admin, compliance_officer, etc.)
 	AccountID string   `json:"account_id,omitempty"` // billing-auth-service account
 	PlanSlug  string   `json:"plan_slug,omitempty"`  // current plan (from billing-auth)
 	jwt.RegisteredClaims

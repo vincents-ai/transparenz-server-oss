@@ -30,7 +30,7 @@ func Test_Compliance_Status(t *testing.T) {
 	}
 
 	env.WriteJSONEvidence("compliance-status-validated.json", map[string]interface{}{
-		"has_compliance_score":   status["compliance_score"] != nil,
+		"has_compliance_score":      status["compliance_score"] != nil,
 		"has_total_vulnerabilities": status["total_vulnerabilities"] != nil,
 	})
 }

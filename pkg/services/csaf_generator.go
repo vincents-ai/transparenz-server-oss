@@ -82,8 +82,8 @@ type ProductTree struct {
 
 // FullProductName is a CSAF 2.0 full_product_name entry.
 type FullProductName struct {
-	ProductID                   string                      `json:"product_id"`
-	Name                        string                      `json:"name"`
+	ProductID                   string                       `json:"product_id"`
+	Name                        string                       `json:"name"`
 	ProductIdentificationHelper *ProductIdentificationHelper `json:"product_identification_helper,omitempty"`
 }
 

@@ -137,8 +137,8 @@ func Test_Scan_GetVulnerabilities(t *testing.T) {
 	require.NoError(t, json.Unmarshal(vulnBody, &vulns))
 
 	env.WriteJSONEvidence("scan-vuln-summary.json", map[string]interface{}{
-		"scan_id":  scanResp.ScanID,
-		"sbom_id":  uploadResp.ID,
+		"scan_id":    scanResp.ScanID,
+		"sbom_id":    uploadResp.ID,
 		"vuln_count": len(vulns.Data),
 	})
 }

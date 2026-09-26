@@ -22,11 +22,11 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockTelemetryRepository struct {
-	configs         map[uuid.UUID]*models.OrgTelemetryConfig
-	getByOrgFn     func(ctx context.Context, orgID uuid.UUID) (*models.OrgTelemetryConfig, error)
-	getAllFn       func(ctx context.Context) ([]*models.OrgTelemetryConfig, error)
-	getByPrefixFn  func(ctx context.Context, prefix string) ([]*models.OrgTelemetryConfig, error)
-	updateFn       func(ctx context.Context, config *models.OrgTelemetryConfig) error
+	configs       map[uuid.UUID]*models.OrgTelemetryConfig
+	getByOrgFn    func(ctx context.Context, orgID uuid.UUID) (*models.OrgTelemetryConfig, error)
+	getAllFn      func(ctx context.Context) ([]*models.OrgTelemetryConfig, error)
+	getByPrefixFn func(ctx context.Context, prefix string) ([]*models.OrgTelemetryConfig, error)
+	updateFn      func(ctx context.Context, config *models.OrgTelemetryConfig) error
 }
 
 func newMockTelemetryRepository() *mockTelemetryRepository {

@@ -18,26 +18,26 @@ import (
 //
 // It traces the complete vulnerability disclosure lifecycle:
 //
-//	 T0  Upload SBOM with clean component
-//	 T1  Initial scan → baseline (0 new vulns expected from our injected CVE)
-//	 T2  Inject CVE into vulnerability_feeds (simulates feed sync)
-//	 T3  Insert vulnerability record (simulates ScanWorker detection)
-//	 T4  Trigger second scan → vulnerability now detected
-//	 T5  Wait for SLA deadline calculation
-//	 T6  Verify SLA deadline is anchored to discovered_at (not time.Now())
-//	 T7  Verify alert broadcast
+//	T0  Upload SBOM with clean component
+//	T1  Initial scan → baseline (0 new vulns expected from our injected CVE)
+//	T2  Inject CVE into vulnerability_feeds (simulates feed sync)
+//	T3  Insert vulnerability record (simulates ScanWorker detection)
+//	T4  Trigger second scan → vulnerability now detected
+//	T5  Wait for SLA deadline calculation
+//	T6  Verify SLA deadline is anchored to discovered_at (not time.Now())
+//	T7  Verify alert broadcast
 //
 // All request/response bodies, timings, and DB state are logged as test output.
 func Test_Pipeline_SBOMCleanToVulnerableToAlert(t *testing.T) {
 	env := SetupTestEnvironment(t, WithoutBSISeed())
 
 	const (
-		cveID       = "CVE-2026-E2E-PIPELINE"
-		component   = "e2e-pipeline-lib"
-		version     = "1.0.0"
-		severity    = "critical"
-		cvss        = 9.8
-		discovered  = "2026-05-25T12:00:00Z" // 2h before test — tests SLA erosion
+		cveID      = "CVE-2026-E2E-PIPELINE"
+		component  = "e2e-pipeline-lib"
+		version    = "1.0.0"
+		severity   = "critical"
+		cvss       = 9.8
+		discovered = "2026-05-25T12:00:00Z" // 2h before test — tests SLA erosion
 	)
 
 	// Connect directly to the test DB for feed/vuln injection
@@ -171,11 +171,11 @@ func Test_Pipeline_SBOMCleanToVulnerableToAlert(t *testing.T) {
 	var vulnList struct {
 		Count int `json:"count"`
 		Data  []struct {
-			CVE            string     `json:"cve"`
-			Severity       string     `json:"severity"`
-			ExploitedInWild bool       `json:"exploited_in_wild"`
-			CVSSScore      float64    `json:"cvss_score"`
-			DiscoveredAt   time.Time  `json:"discovered_at"`
+			CVE             string    `json:"cve"`
+			Severity        string    `json:"severity"`
+			ExploitedInWild bool      `json:"exploited_in_wild"`
+			CVSSScore       float64   `json:"cvss_score"`
+			DiscoveredAt    time.Time `json:"discovered_at"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(vulnBody, &vulnList))
@@ -363,27 +363,27 @@ func Test_Pipeline_SBOMCleanToVulnerableToAlert(t *testing.T) {
 	//  Write evidence
 	// ═══════════════════════════════════════════════════════════════════════
 	env.WriteJSONEvidence("pipeline-e2e-summary.json", map[string]interface{}{
-		"cve":               cveID,
-		"component":         fmt.Sprintf("%s@%s", component, version),
-		"sbom_id":           upload.ID,
-		"scan1_id":          scan1.ScanID,
-		"scan2_id":          scan2.ScanID,
-		"baseline_vulns":    baselineVulns,
-		"post_vulns":        postVulns,
-		"sla_deadline":      slaEntry.Deadline.Format(time.RFC3339),
-		"sla_status":        slaEntry.Status,
-		"sla_window":        slaWindow.String(),
+		"cve":                  cveID,
+		"component":            fmt.Sprintf("%s@%s", component, version),
+		"sbom_id":              upload.ID,
+		"scan1_id":             scan1.ScanID,
+		"scan2_id":             scan2.ScanID,
+		"baseline_vulns":       baselineVulns,
+		"post_vulns":           postVulns,
+		"sla_deadline":         slaEntry.Deadline.Format(time.RFC3339),
+		"sla_status":           slaEntry.Status,
+		"sla_window":           slaWindow.String(),
 		"sla_deadline_correct": expectedDeadline.Format(time.RFC3339),
-		"pipeline_time_ms":  pipelineTime.Milliseconds(),
-		"total_time_ms":     e2eTotal.Milliseconds(),
+		"pipeline_time_ms":     pipelineTime.Milliseconds(),
+		"total_time_ms":        e2eTotal.Milliseconds(),
 		"stages": map[string]string{
-			"upload":     t1.Sub(t0).String(),
-			"scan1":      t2.Sub(t1).String(),
-			"inject_cve": t3.Sub(t2).String(),
+			"upload":      t1.Sub(t0).String(),
+			"scan1":       t2.Sub(t1).String(),
+			"inject_cve":  t3.Sub(t2).String(),
 			"insert_vuln": t4.Sub(t3).String(),
-			"scan2":      t5.Sub(t4).String(),
-			"verify_api": t6.Sub(t5).String(),
-			"sla_wait":   t7.Sub(t6).String(),
+			"scan2":       t5.Sub(t4).String(),
+			"verify_api":  t6.Sub(t5).String(),
+			"sla_wait":    t7.Sub(t6).String(),
 		},
 	})
 }

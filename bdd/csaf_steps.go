@@ -180,7 +180,7 @@ func enisaSetSubmissionMode(mode string) error {
 }
 
 // enisaConfigureMock is a no-op in OSS — ENISA API mode requires commercial edition.
-func enisaConfigureMock() error { return nil }
+func enisaConfigureMock() error              { return nil }
 func enisaAssertMockSubmissions(_ int) error { return nil }
 
 // Ensure imports used
@@ -248,7 +248,7 @@ func extListEnisaSubmissions() error {
 
 // csafSeedFeedEntry creates a vulnerability feed entry for CSAF test scenarios.
 func csafSeedFeedEntry(cve, severity string, cvss float64) error {
-	
+
 	feed := models.VulnerabilityFeed{
 		ID:            uuid.New(),
 		Cve:           cve,
