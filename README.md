@@ -62,12 +62,18 @@ nix-shell -p k6 -p postgresql --run './run-e2e.sh'
 - **Vulnerability Scanning** — VulnzMatcher-based scanning (no Grype dependency)
 - **VEX Lifecycle** — Create, approve, publish Vulnerability Exploitability eXchange statements
 - **CSAF 2.0** — Generate and distribute security advisories per Common Security Advisory Framework
-- **SLA Tracking** — Automated deadline enforcement: 24h exploited, 72h critical (CRA Art. 10)
+- **CRA Art. 14 Reporting** — Awareness-anchored reporting for actively exploited
+  vulnerabilities and severe incidents (in force since 11 September 2026): AEV/SI
+  classification, 24h Early Warning / 72h Notification / Final Report, and validated
+  submission packages against the ENISA SRP glossary
+- **SLA Tracking** — Internal remediation windows driven by severity, plus Article 14
+  reporting obligations anchored on awareness; each row records which it is
 - **Coordinated Disclosure** — Upstream notification workflow with 90-day response window
 - **Audit Trail** — Compliance event tracking with verification
 - **Real-time Alerts** — SSE-based vulnerability and SLA alerts
 - **Multi-Tenant Isolation** — Row-Level Security (RLS) and schema-per-org
-- **ENISA Read-Only** — List and download ENISA submissions
+- **Submission Records** — List and download submission records (manual filings to the
+  ENISA SRP, and pushes to a national CSIRT endpoint)
 - **Metrics** — Prometheus `/metrics` endpoint with basic auth
 
 ## Commercial Edition
@@ -254,8 +260,8 @@ All shared code is maintained in this repo. The commercial edition only contains
 | GET | `/api/csaf/advisories` | List CSAF advisories |
 | GET | `/api/csaf/advisories/:id` | Get CSAF advisory |
 | GET | `/api/csaf/changes.csv` | Download changes.csv |
-| GET | `/api/enisa/submissions` | List ENISA submissions |
-| GET | `/api/enisa/submissions/:id` | Get ENISA submission |
+| GET | `/api/enisa/submissions` | List submission records |
+| GET | `/api/enisa/submissions/:id` | Get a submission record |
 | GET | `/api/enisa/submissions/:id/download` | Download ENISA submission |
 | POST | `/api/enisa/submit` | **Returns 403** (commercial only) |
 | POST | `/api/vex` | Create VEX statement |
