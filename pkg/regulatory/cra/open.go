@@ -38,7 +38,17 @@ type OpenRequest struct {
 	// the evidence for the composition is what the report stands on.
 	ExposureProductID string
 
-	// EventType is the reportable class the human determined.
+	// EventType is the reportable class. It is OPTIONAL and normally empty.
+	//
+	// A report opens at DETECTED with no class, because the class is the
+	// determination itself and is recorded separately, with its reasoning and
+	// actor, at the classification step. Accepting it here would let a report
+	// be born already classified, which is the thing the two-step design exists
+	// to prevent: a class asserted at open time has no determination behind it.
+	//
+	// It may be supplied when the caller genuinely determined the class while
+	// preparing the record, in which case it is carried and the repository
+	// still requires the determination to be recorded explicitly.
 	EventType EventType
 
 	// Exploitation is the evidence the human accepts. For an AEV this is
@@ -75,7 +85,7 @@ func OpenFromAssessment(a Assessment, req OpenRequest) (Report, error) {
 	if req.Actor == "" {
 		return Report{}, fmt.Errorf("%w: no accountable actor", ErrAssessmentIncomplete)
 	}
-	if !req.EventType.Valid() {
+	if req.EventType != "" && !req.EventType.Valid() {
 		return Report{}, fmt.Errorf("%w: event type %q is not valid", ErrAssessmentIncomplete, req.EventType)
 	}
 	if err := req.Awareness.Validate(); err != nil {

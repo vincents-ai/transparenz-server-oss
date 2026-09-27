@@ -52,7 +52,14 @@ func (r *CRARepository) Create(ctx context.Context, report cra.Report) error {
 		return fmt.Errorf("cra: a new report must start at DETECTED, got %s", report.State)
 	}
 	if report.EventType.Valid() {
-		return fmt.Errorf("cra: a new report must not carry an event type; it is set by classification")
+		// A report opens undetermined. A class asserted at open time carries no
+		// determination, no reasoning and no actor behind it, and the whole
+		// point of the DETECTED -> ASSESSING -> REPORTABLE_* path is that the
+		// determination is a distinct, attributable act. Accepting one here
+		// would let a report be born already classified and would bypass it.
+		return fmt.Errorf(
+			"cra: a new report must not carry an event type; open it undetermined and " +
+				"record the determination through classification")
 	}
 
 	row, err := reportToRow(report)
