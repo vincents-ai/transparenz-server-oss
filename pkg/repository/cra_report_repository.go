@@ -690,3 +690,36 @@ func derefTime(t *time.Time) time.Time {
 	}
 	return *t
 }
+
+// ListOpenReports returns every CRA report that is not in a terminal state,
+// across all organisations.
+//
+// It is deliberately cross-tenant, like the SLA calculator's org sweep: a
+// reporting deadline is a regulatory clock, and a clock that only ticks for
+// the organisation someone happens to be looking at is not a clock. The caller
+// is responsible for establishing per-org context before writing.
+//
+// Terminal dispositions are excluded. A closed, not-reportable, false-positive
+// or duplicate report has no outstanding obligation, and repeatedly
+// "discovering" that one has no deadlines is how a sweeper fills a log with
+// noise that trains people to ignore it.
+func (r *CRARepository) ListOpenReports(ctx context.Context, limit int) ([]models.CRAReport, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	terminal := []string{
+		"CLOSED", "NOT_REPORTABLE", "FALSE_POSITIVE", "DUPLICATE",
+	}
+	var rows []models.CRAReport
+	// Submissions MUST be preloaded. Without them the caller cannot tell a
+	// report whose 24-hour window was discharged from one that was missed, and
+	// will report a breach for a filing that already happened — the single
+	// worst false positive a deadline sweeper can produce.
+	err := r.db.WithContext(ctx).
+		Preload("Submissions").
+		Where("state NOT IN ?", terminal).
+		Order("awareness_at NULLS LAST").
+		Limit(limit).
+		Find(&rows).Error
+	return rows, err
+}

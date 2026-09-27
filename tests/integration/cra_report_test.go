@@ -23,14 +23,18 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"github.com/vincents-ai/transparenz-server-oss/pkg/models"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/regulatory/cra"
 	"github.com/vincents-ai/transparenz-server-oss/pkg/repository"
+	"github.com/vincents-ai/transparenz-server-oss/pkg/services"
 )
 
 // craTestDB connects to a PostgreSQL instance whose compliance schema already
@@ -384,4 +388,157 @@ func TestCRARepository_CoordinatorSelectionIsRecordedAndJustified(t *testing.T) 
 	require.NotNil(t, got.CsirtSelectionBasis)
 	assert.Equal(t, "establishment_country", *got.CsirtSelectionBasis)
 	require.Len(t, got.CoordinatorHistory, 1)
+}
+
+// --- Article 14 deadline sweeper -------------------------------------------
+// The sweeper's decision logic is unit-tested against SQLite, but two things
+// only exist on PostgreSQL: the JSON metadata operator the alert-once check
+// uses, and the signed audit chain. Both are verified here.
+
+func craSweepPostgres(t *testing.T) (*gorm.DB, *repository.CRARepository, *repository.ComplianceEventRepository, uuid.UUID) {
+	t.Helper()
+	db := craTestDB(t)
+	orgID := craTestOrg(t, db)
+	return db, repository.NewCRARepository(db), repository.NewComplianceEventRepository(db), orgID
+}
+
+func seedSweptReport(t *testing.T, db *gorm.DB, orgID uuid.UUID, eventType, state string, awareness time.Time) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	et := eventType
+	row := &models.CRAReport{
+		ID: id, OrgID: orgID, Cve: "CVE-2026-31337",
+		EventType: &et, State: state,
+		ProductID: "sbom:abc", ProductName: "gateway.json",
+		AwarenessAt: &awareness, AwarenessSource: "cert",
+		AwarenessEvidence: "cert mail", AwarenessRecordedBy: "user:sec@example.eu",
+		ExploitationReference: "pcap-1",
+		CreatedAt:             awareness, UpdatedAt: awareness,
+		// A nil pq.StringArray serialises as SQL NULL, which the NOT NULL
+		// DEFAULT '{}' columns reject. The repository's mapping sets these; a
+		// test that builds the row directly has to do it itself.
+		PecGrounds:  pq.StringArray{},
+		PecEvidence: pq.StringArray{},
+	}
+	require.NoError(t, db.Create(row).Error)
+	return id
+}
+
+// A breach is recorded into the signed audit chain, and recorded once. The
+// once-ness matters more than usual here: the chain is a sequence of signed
+// assertions, so a duplicate is a second signed statement that the same event
+// happened twice.
+func TestCRASweeperRecordsABreachOnceInTheSignedChain(t *testing.T) {
+	db, reports, events, orgID := craSweepPostgres(t)
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	seedSweptReport(t, db, orgID, "ACTIVELY_EXPLOITED_VULNERABILITY", "REPORTABLE_AEV", now.Add(-30*time.Hour))
+
+	keyDir := t.TempDir()
+	sweeper := services.NewCRADeadlineSweeper(
+		reports, repository.NewOrganizationRepository(db), events,
+		services.NewSigningService(db, zap.NewNop(), keyDir),
+		nil, zap.NewNop(), time.Minute,
+	)
+	sweeper.SweepAtForTest(context.Background(), now)
+	sweeper.SweepAtForTest(context.Background(), now)
+	sweeper.SweepAtForTest(context.Background(), now)
+
+	var breaches []models.ComplianceEvent
+	require.NoError(t, db.Where("org_id = ? AND event_type = ?", orgID, services.EventCRADeadlineMissed).
+		Find(&breaches).Error)
+	require.Len(t, breaches, 1, "three sweeps must produce one audit event, not three")
+
+	ev := breaches[0]
+	assert.NotEmpty(t, ev.Signature, "the breach must be signed")
+	assert.NotEmpty(t, ev.EventHash)
+	assert.Equal(t, "critical", ev.Severity)
+	assert.Equal(t, "EARLY_WARNING", ev.Metadata["stage"])
+	assert.Equal(t, "awareness_at", ev.Metadata["anchor_name"])
+	assert.Equal(t, "sbom:abc", ev.Metadata["product_id"])
+	assert.NotEmpty(t, ev.Metadata["rule"], "the rule applied belongs on the event")
+}
+
+// The once-ness check relies on a JSON metadata lookup, which is a PostgreSQL
+// operator. This asserts it directly so a future change to the dedup strategy
+// cannot quietly break alerting and start emitting a duplicate every tick.
+func TestHasEventForReportUsesReportScopedMetadata(t *testing.T) {
+	db, _, events, orgID := craSweepPostgres(t)
+	reportID := "11111111-1111-4111-8111-111111111111"
+	otherID := "22222222-2222-4222-8222-222222222222"
+
+	seen, err := events.HasEventForReport(context.Background(), orgID, "cra_deadline_missed", reportID, "EARLY_WARNING")
+	require.NoError(t, err)
+	assert.False(t, seen)
+
+	require.NoError(t, db.Create(&models.ComplianceEvent{
+		OrgID: orgID, EventType: "cra_deadline_missed", Severity: "critical",
+		Metadata: models.JSONMap{"report_id": reportID, "stage": "EARLY_WARNING"},
+	}).Error)
+
+	seen, err = events.HasEventForReport(context.Background(), orgID, "cra_deadline_missed", reportID, "EARLY_WARNING")
+	require.NoError(t, err)
+	assert.True(t, seen)
+
+	// A different STAGE of the same report is a separate failure and must not
+	// be suppressed by the first one recorded. A report can miss both its 24h
+	// and its 72h window, and an authority would want to see both.
+	seen, err = events.HasEventForReport(context.Background(), orgID, "cra_deadline_missed", reportID, "NOTIFICATION_72H")
+	require.NoError(t, err)
+	assert.False(t, seen, "a second breached stage of the same report must be recordable")
+
+	// A different stage of the same report type, and a different report, must
+	// not be conflated: both are separately recordable conditions.
+	seen, err = events.HasEventForReport(context.Background(), orgID, "cra_deadline_missed", otherID, "EARLY_WARNING")
+	require.NoError(t, err)
+	assert.False(t, seen)
+
+	seen, err = events.HasEventForReport(context.Background(), orgID, "cra_submission_late", reportID, "EARLY_WARNING")
+	require.NoError(t, err)
+	assert.False(t, seen, "a different event type is a different condition")
+}
+
+// A deadline that cannot be computed must never be reported as breached. On
+// PostgreSQL the full schema applies, so this exercises the real constraints
+// alongside the sweeper's judgement.
+func TestCRASweeperIgnoresUncomputableFinalReport(t *testing.T) {
+	db, reports, events, orgID := craSweepPostgres(t)
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	reportID := seedSweptReport(t, db, orgID, "ACTIVELY_EXPLOITED_VULNERABILITY", "REPORTABLE_AEV", now.Add(-400*24*time.Hour))
+
+	sweeper := services.NewCRADeadlineSweeper(
+		reports, repository.NewOrganizationRepository(db), events, nil, nil, zap.NewNop(), time.Minute)
+	sweeper.SweepAtForTest(context.Background(), now)
+
+	// The assertion is scoped to this report, because the sweeper is
+	// deliberately cross-tenant and the test database holds other reports.
+	var stages []string
+	require.NoError(t, db.Model(&models.ComplianceEvent{}).
+		Where("org_id = ? AND event_type = ? AND metadata->>'report_id' = ?",
+			orgID, services.EventCRADeadlineMissed, reportID.String()).
+		Pluck("metadata->>'stage'", &stages).Error)
+
+	// The 24h and 72h windows are long breached, so two misses are expected.
+	// What must not appear is a third for the final report, which has no
+	// mitigation anchor and therefore no deadline to miss.
+	assert.ElementsMatch(t, []string{"EARLY_WARNING", "NOTIFICATION_72H"}, stages,
+		"two awareness-anchored windows breach; the unanchored final report must not")
+}
+
+// The sweeper detects and records. It must never create a submission: there is
+// no ENISA API, and a filing is a legal determination, not a scheduled action.
+func TestCRASweeperNeverCreatesASubmission(t *testing.T) {
+	db, reports, events, orgID := craSweepPostgres(t)
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	reportID := seedSweptReport(t, db, orgID, "ACTIVELY_EXPLOITED_VULNERABILITY", "REPORTABLE_AEV", now.Add(-30*time.Hour))
+
+	sweeper := services.NewCRADeadlineSweeper(
+		reports, repository.NewOrganizationRepository(db), events, nil, nil, zap.NewNop(), time.Minute)
+	sweeper.SweepAtForTest(context.Background(), now)
+
+	// Scoped to this report, since the sweeper is cross-tenant and the test
+	// database holds submissions from other cases.
+	var n int64
+	require.NoError(t, db.Model(&models.CRASubmission{}).
+		Where("report_id = ?", reportID).Count(&n).Error)
+	assert.Zero(t, n)
 }

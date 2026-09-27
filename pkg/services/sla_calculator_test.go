@@ -87,20 +87,41 @@ func TestApplySlaAutomation_FullyAutomatic_FlipsOnlyOnSuccess(t *testing.T) {
 			var got models.SlaTracking
 			require.NoError(t, db.First(&got, "id = ?", sla.ID).Error)
 			return got.Status == "auto_submitted"
-		}, 2*time.Second, 10*time.Millisecond, "SLA must flip to auto_submitted after successful submission")
+			// Poll slowly. The wait condition reads on every tick, and SQLite
+			// allows a single writer: a tight 10ms read loop starves the
+			// goroutine's UPDATE we are waiting for, which is why this test was
+			// flaky under package-wide load and not in isolation.
+		}, 10*time.Second, 100*time.Millisecond, "SLA must flip to auto_submitted after successful submission")
 	})
 
 	t.Run("failure leaves SLA status unchanged (no false compliant)", func(t *testing.T) {
 		sla, calc, db := setupSlaAutomationTest(t)
-		calc.enisaService = &fakeAutoSubmitter{err: errors.New("ENISA 503")}
+		fake := &fakeAutoSubmitter{err: errors.New("receiver 503")}
+		calc.enisaService = fake
 
 		calc.applySlaAutomation(context.Background(), sla, SlaAutomationFullyAutomatic)
 
-		// Give the goroutine a moment to run and fail.
-		time.Sleep(100 * time.Millisecond)
+		// Wait for the goroutine to actually run and fail, then assert. The
+		// previous version slept a fixed 100ms and asserted, which could pass
+		// simply because the goroutine had not run yet — a false pass that
+		// proved nothing about the behaviour under test.
+		require.Eventually(t, func() bool { return fake.calledCVE == sla.Cve },
+			10*time.Second, 50*time.Millisecond, "the submission must have been attempted")
+
+		// And then hold the line: the status must not flip, for long enough
+		// that a late flip would be caught.
+		assert.Never(t, func() bool {
+			var got models.SlaTracking
+			if err := db.First(&got, "id = ?", sla.ID).Error; err != nil {
+				return true
+			}
+			return got.Status == "auto_submitted"
+		}, 500*time.Millisecond, 100*time.Millisecond,
+			"a failed submission must never leave the SLA in a false-compliant state")
+
 		var got models.SlaTracking
 		require.NoError(t, db.First(&got, "id = ?", sla.ID).Error)
-		assert.Equal(t, "pending", got.Status, "failed submission must NOT flip SLA to auto_submitted")
+		assert.Equal(t, "pending", got.Status)
 	})
 }
 

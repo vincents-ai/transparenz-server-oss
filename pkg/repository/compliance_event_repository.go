@@ -75,3 +75,35 @@ func (r *ComplianceEventRepository) ListByDateRange(ctx context.Context, start, 
 		Find(&events).Error
 	return events, err
 }
+
+// HasEventForReport reports whether a compliance event of the given type and
+// STAGE has already been recorded against a CRA report.
+//
+// The stage is part of the key, and it has to be. A single report can miss both
+// its 24-hour and its 72-hour window, and those are two separate failures that
+// an authority would want to see separately. Keyed on report and type alone, the
+// first one recorded would suppress every subsequent stage for that report, and
+// the 72-hour miss would never be recorded at all.
+//
+// It exists so a ticker-driven sweeper records a breach once rather than on
+// every tick. A 24-hour window that is breached stays breached, so without this
+// a one-minute sweeper would write a duplicate audit event — and a duplicate in
+// a signed hash chain is not a harmless repeat: it is a second, separately
+// signed assertion that the same thing happened twice.
+//
+// The report id lives in the event's metadata, so this also keeps the audit
+// record self-describing: an event names the report and the stage it concerns
+// without needing a separate table.
+func (r *ComplianceEventRepository) HasEventForReport(ctx context.Context, orgID uuid.UUID, eventType, reportID, stage string) (bool, error) {
+	var count int64
+	err := r.db.WithContext(ctx).
+		Model(&models.ComplianceEvent{}).
+		Where("org_id = ? AND event_type = ? AND metadata->>'report_id' = ? AND metadata->>'stage' = ?",
+			orgID, eventType, reportID, stage).
+		Limit(1).
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
