@@ -17,9 +17,9 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	_ "github.com/lib/pq"
 )
 
 // Run against a live server + DB:
@@ -240,11 +240,11 @@ func TestE2EPipeline(t *testing.T) {
 	var vulnList struct {
 		Count int `json:"count"`
 		Data  []struct {
-			CVE            string    `json:"cve"`
-			Severity       string    `json:"severity"`
-			ExploitedInWild bool     `json:"exploited_in_wild"`
-			CVSSScore      float64   `json:"cvss_score"`
-			DiscoveredAt   time.Time `json:"discovered_at"`
+			CVE             string    `json:"cve"`
+			Severity        string    `json:"severity"`
+			ExploitedInWild bool      `json:"exploited_in_wild"`
+			CVSSScore       float64   `json:"cvss_score"`
+			DiscoveredAt    time.Time `json:"discovered_at"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(vulnBody, &vulnList))

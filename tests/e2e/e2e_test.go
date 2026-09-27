@@ -364,7 +364,9 @@ func uploadSBOM(t *testing.T, router *gin.Engine, token string, sbomData []byte)
 	router.ServeHTTP(rw, req)
 	require.Equal(t, http.StatusCreated, rw.Code, "Upload failed: %s", rw.Body.String())
 
-	var resp struct{ ID string `json:"id"` }
+	var resp struct {
+		ID string `json:"id"`
+	}
 	require.NoError(t, json.Unmarshal(rw.Body.Bytes(), &resp))
 	return resp.ID
 }
@@ -375,7 +377,9 @@ func triggerScan(t *testing.T, router *gin.Engine, token, sbomID string) string 
 		[]byte(fmt.Sprintf(`{"sbom_id":"%s"}`, sbomID)), "application/json")
 	require.Equal(t, http.StatusAccepted, w.Code, "Scan failed: %s", w.Body.String())
 
-	var resp struct{ ScanID string `json:"scan_id"` }
+	var resp struct {
+		ScanID string `json:"scan_id"`
+	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	return resp.ScanID
 }
@@ -415,7 +419,9 @@ func countScanVulnerabilities(t *testing.T, router *gin.Engine, token, scanID st
 	t.Helper()
 	w := doReq(t, router, "GET", fmt.Sprintf("/api/scans/%s/vulnerabilities", scanID), token, nil, "")
 	require.Equal(t, http.StatusOK, w.Code, "Vuln list failed: %s", w.Body.String())
-	var r struct{ Data []interface{} `json:"data"` }
+	var r struct {
+		Data []interface{} `json:"data"`
+	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &r))
 	return len(r.Data)
 }
@@ -424,7 +430,9 @@ func listVulnerabilities(t *testing.T, router *gin.Engine, token string) int {
 	t.Helper()
 	w := doReq(t, router, "GET", "/api/vulnerabilities", token, nil, "")
 	require.Equal(t, http.StatusOK, w.Code)
-	var r struct{ Data []interface{} `json:"data"` }
+	var r struct {
+		Data []interface{} `json:"data"`
+	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &r))
 	return len(r.Data)
 }
@@ -434,7 +442,9 @@ func createVEX(t *testing.T, router *gin.Engine, token, cve, productID string) s
 	body := fmt.Sprintf(`{"cve":"%s","product_id":"%s","status":"affected","justification":"Vulnerable component in production"}`, cve, productID)
 	w := doReq(t, router, "POST", "/api/vex", token, []byte(body), "application/json")
 	require.Equal(t, http.StatusCreated, w.Code, "VEX create failed: %s", w.Body.String())
-	var r struct{ ID string `json:"id"` }
+	var r struct {
+		ID string `json:"id"`
+	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &r))
 	return r.ID
 }
