@@ -32,8 +32,10 @@ Thumbs.db
 .env.local
 *.pem
 
-# Evidence
-evidence/
+# Evidence (generated output at the repository root)
+# Anchored deliberately. Unanchored, "evidence/" matches at any depth and
+# silently swallows the pkg/regulatory/evidence source package.
+/evidence/
 
 # Docs media (generated)
 docs/media/
