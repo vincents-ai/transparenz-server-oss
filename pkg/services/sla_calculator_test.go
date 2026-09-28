@@ -168,7 +168,7 @@ func TestComputeDeadlineSeparatesHandlingWindowsFromArticle14Obligations(t *test
 			DiscoveredAt:                discDate,
 			KevDateAdded:                ptrTime(kevDate),
 			AwarenessAt:                 ptrTime(awareness),
-			AwarenessSource:             "cert",
+			AwarenessSource:             strPtr("cert"),
 			AwarenessEvidence:           "BSI CERT-Bund notification ref CERT-2026-0042",
 			ActiveExploitationConfirmed: true,
 		}
@@ -285,7 +285,7 @@ func TestArticle14ObligationIsAnchoredOnAwarenessNotOnTheFeed(t *testing.T) {
 		DiscoveredAt:                ingested,
 		KevDateAdded:                ptrTime(feedDate),
 		AwarenessAt:                 ptrTime(awareness),
-		AwarenessSource:             "exploit_evidence",
+		AwarenessSource:             strPtr("exploit_evidence"),
 		AwarenessEvidence:           "pcap-2026-09-20-0845",
 		ActiveExploitationConfirmed: true,
 	}
@@ -490,3 +490,9 @@ func TestSlaDeadlineNotFromNow(t *testing.T) {
 	t.Logf("Wrong (now + 24h):             %s", wrongDeadline.Format(time.RFC3339))
 	t.Logf("Difference:                     %v", diff)
 }
+
+// strPtr returns a pointer to a string literal, for the nullable
+// AwarenessSource field. A vulnerability with no awareness determination is
+// represented by nil, which is distinct from every one of the five valid
+// values — the distinction the database CHECK constraint enforces.
+func strPtr(s string) *string { return &s }

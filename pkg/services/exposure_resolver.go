@@ -298,6 +298,16 @@ func (r *ExposureResolver) loadExistingReports(ctx context.Context, orgID uuid.U
 	return ids, nil
 }
 
+// awarenessSourceValue unwraps the nullable awareness source. A nil pointer
+// means no determination has been recorded, which is distinct from any of the
+// five valid values and must not be silently flattened into the empty string.
+func awarenessSourceValue(vuln models.Vulnerability) string {
+	if vuln.AwarenessSource == nil {
+		return ""
+	}
+	return *vuln.AwarenessSource
+}
+
 // exploitationSignals derives evidence inputs from the vulnerability record.
 //
 // Every signal is a statement by a source, never a determination. The
@@ -310,7 +320,15 @@ func exploitationSignals(vuln models.Vulnerability) []cra.ExploitationSignal {
 	if vuln.ActiveExploitationConfirmed {
 		ref := vuln.AwarenessEvidence
 		if ref == "" {
-			ref = "determination:" + vuln.AwarenessSource
+			// A confirmed determination normally has a source, but a
+			// vulnerability confirmed before awareness was recorded is
+			// representable, so do not emit a bare "determination:" with
+			// nothing after it.
+			if src := awarenessSourceValue(vuln); src != "" {
+				ref = "determination:" + src
+			} else {
+				ref = "determination:unrecorded"
+			}
 		}
 		observed := vuln.UpdatedAt
 		if vuln.AwarenessAt != nil {
@@ -357,7 +375,7 @@ func exploitationSignals(vuln models.Vulnerability) []cra.ExploitationSignal {
 // regulatory Awareness value.
 func awarenessFrom(vuln models.Vulnerability, now time.Time) cra.Awareness {
 	a := cra.Awareness{
-		Source:     cra.AwarenessSource(vuln.AwarenessSource),
+		Source:     cra.AwarenessSource(awarenessSourceValue(vuln)),
 		Evidence:   vuln.AwarenessEvidence,
 		RecordedAt: now,
 		RecordedBy: vuln.AwarenessRecordedBy,
