@@ -20,6 +20,23 @@ cd "$REPO_ROOT"
 
 status=0
 
+# Deliberate filesystem replaces, one module path per line, in a file named
+# clean-room-allow next to this script. These are reviewed exceptions, not a
+# loophole: a private sibling repository cannot be consumed as a versioned Go
+# module, because the public proxy cannot fetch private repositories, so a
+# filesystem replace is sometimes the only workable pattern. What matters is
+# that it is declared rather than discovered, so a new one still fails.
+ALLOW_FILE="$(dirname "${BASH_SOURCE[0]}")/clean-room-allow"
+declare -A ALLOWED=()
+if [[ -f "$ALLOW_FILE" ]]; then
+	while IFS= read -r line; do
+		line="${line%%#*}"
+		line="$(echo "$line" | tr -d '[:space:]')"
+		[[ -z "$line" ]] && continue
+		ALLOWED["$line"]=1
+	done < "$ALLOW_FILE"
+fi
+
 report() {
 	printf '  %s\n' "$*"
 }
@@ -42,8 +59,21 @@ while IFS= read -r modfile; do
 	fi
 
 	# Each replace is either single-line `replace X => Y` or a block form.
+	# Deliberate entries named in clean-room-allow are reported but not failed.
 	offending="$(sed 's|//.*||' "$modfile" \
 		| grep -E '(^|[[:space:]])(=>)[[:space:]]*(\.\.?/|/|[A-Za-z]:\\)' || true)"
+	offending="$(
+		while IFS= read -r line; do
+			[[ -z "$line" ]] && continue
+			mod="$(echo "$line" | awk '{print $2}')"
+			if [[ -n "${ALLOWED[$mod]:-}" ]]; then
+				# stderr, so the notice is not captured into $offending below
+				printf '    allowed: %s\n' "$line" >&2
+			else
+				echo "$line"
+			fi
+		done <<< "$offending"
+	)"
 
 	if [[ -n "$offending" ]]; then
 		found_replace=1
@@ -67,6 +97,9 @@ else
 	echo "  A release built from these go.mod files depends on directories that"
 	echo "  will not exist on a clean runner. Either publish the dependency and"
 	echo "  use a tagged version, or vendor it."
+	echo "  If the dependency is a private repository and a local checkout is"
+	echo "  genuinely required, declare it in scripts/clean-room-allow so the"
+	echo "  exception is explicit and reviewed."
 	status=1
 fi
 
@@ -105,6 +138,33 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
 	fi
 else
 	echo "  SKIP: not a git repository"
+fi
+
+
+# --- Nix release build must actually work ---------------------------------
+# A stale vendorHash breaks `nix build` while every other check still passes,
+# because the hash is the only place the vendored dependency set is verified.
+# That happened: go.mod moved to v0.2.7, the hash did not, and this gate
+# reported PASS for a repository whose release build could not run.
+echo
+echo "==> Checking the Nix release build"
+if command -v nix >/dev/null 2>&1 && [ -f flake.nix ]; then
+	if [[ "${CLEAN_ROOM_SKIP_NIX:-0}" == "1" ]]; then
+		echo "  SKIP: CLEAN_ROOM_SKIP_NIX=1"
+	else
+		if nix build .#server --no-link >/dev/null 2>&1; then
+			echo "  OK: nix build .#server succeeds"
+		else
+			echo "  FAIL: nix build .#server does not succeed."
+			echo "        A stale vendorHash is the usual cause; recompute it with"
+			echo "          nix build .#server   (set vendorHash = lib.fakeHash first)"
+			echo "        and copy the 'got:' hash into flake.nix. Set CLEAN_ROOM_SKIP_NIX=1"
+			echo "        to skip this when nix is unavailable."
+			status=1
+		fi
+	fi
+else
+	echo "  SKIP: nix not available, or no flake.nix"
 fi
 
 # --- Result -----------------------------------------------------------------
