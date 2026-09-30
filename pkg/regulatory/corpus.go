@@ -81,7 +81,29 @@ func BuildSRPGlossarySchema(sourceKey string, publishedAt time.Time) (*Reporting
 			ApplicableTo: []EventClass{EventClassAEV},
 			Description:  "CVE identifier of the actively exploited vulnerability",
 			Stages: []StageRequirement{
-				{StageEarlyWarning, EventClassAEV, RequirementRequired},
+				// Optional at early warning, not required. Article 14 early
+				// warning covers an actively exploited vulnerability, and an
+				// organisation very often learns of the exploitation before any
+				// CVE exists — that is frequently the reason the report is being
+				// filed. Requiring the identifier at 24 hours therefore rejects a
+				// legitimate regulatory filing, which is the one failure this
+				// subsystem exists to prevent.
+				//
+				// The errors are not symmetric. If the identifier is required and a
+				// real report has none, a lawful report is refused. If it is
+				// optional and the authority would have preferred one, the report
+				// goes out slightly incomplete and the omission stays visible to
+				// the reporter. The safer error is the optional one, and the field
+				// remains applicable and reportable.
+				//
+				// PENDING GLOSSARY RECONCILIATION. The field *identifier* this maps
+				// to has not been reconciled against the authoritative ENISA SRP
+				// glossary, which is not available in this repo. The requiredness
+				// change stands on the reasoning above and does not depend on that
+				// mapping. If the glossary turns out to require the identifier at
+				// early warning, revert this one line and leave the rest alone.
+				// Do not adjust the mapping itself from memory.
+				{StageEarlyWarning, EventClassAEV, RequirementOptional},
 				{StageNotification72h, EventClassAEV, RequirementInheritedOrUpdate},
 				{StageFinalReport, EventClassAEV, RequirementInheritedOrUpdate},
 			},

@@ -315,9 +315,7 @@ func TestMissingRequiredFieldIsReportedWithTheStageAndClass(t *testing.T) {
 	s, _ := sr.Current(RegimeCRAArticle14)
 
 	incomplete := Values{
-		FieldSeverity:     "Remote compromise",
 		FieldAttackVector: "network",
-		FieldProduct:      "Example Gateway 3.x",
 	}
 	err := s.Validate(StageEarlyWarning, EventClassAEV, incomplete)
 	require.Error(t, err)
@@ -330,9 +328,70 @@ func TestMissingRequiredFieldIsReportedWithTheStageAndClass(t *testing.T) {
 			missing[i.FieldID] = true
 		}
 	}
-	assert.True(t, missing[FieldCVEID])
+	// The CVE identifier is NOT among the missing-required fields: an
+	// organisation frequently learns of an active exploitation before any CVE
+	// exists, and refusing the report for that reason would be the worst
+	// possible failure. Evidence of exploitation is still required, so the
+	// report is not left unsupported.
+	assert.False(t, missing[FieldCVEID],
+		"a CVE identifier must not be required at early warning; see the corpus note")
 	assert.True(t, missing[FieldExploitation])
 	assert.Greater(t, len(ce.Issues()), 1, "every problem is reported, not just the first")
+}
+
+// The case that motivated relaxing the requirement: a lawful early warning
+// with no CVE assigned must still validate.
+func TestEarlyWarningWithoutACVEStillValidates(t *testing.T) {
+	_, sr := corpus(t)
+	s, _ := sr.Current(RegimeCRAArticle14)
+
+	values := Values{
+		FieldSeverity:     "Remote compromise",
+		FieldAttackVector: "network",
+		FieldProduct:      "Example Gateway 3.x",
+		FieldExploitation: "Observed inbound exploitation in the wild",
+	}
+	err := s.Validate(StageEarlyWarning, EventClassAEV, values)
+	require.NoError(t, err,
+		"an actively exploited vulnerability discovered before a CVE is assigned "+
+			"is exactly what Article 14 early warning exists to report")
+}
+
+// Relaxing the requirement must not make the field unreportable: it is still
+// applicable, still validated when present, and still carried forward.
+func TestCVEIDRemainsApplicableAndOptional(t *testing.T) {
+	_, sr := corpus(t)
+	s, _ := sr.Current(RegimeCRAArticle14)
+
+	f, ok := s.Field(FieldCVEID)
+	require.True(t, ok, "the CVE identifier field must still exist")
+	assert.Equal(t, RequirementOptional, f.RequirementAt(StageEarlyWarning, EventClassAEV))
+	assert.Contains(t, f.ApplicableTo, EventClassAEV,
+		"the field stays applicable to actively exploited vulnerabilities")
+
+	// Still reportable when supplied.
+	values := Values{
+		FieldCVEID:        "CVE-2026-31337",
+		FieldSeverity:     "Remote compromise",
+		FieldAttackVector: "network",
+		FieldProduct:      "Example Gateway 3.x",
+		FieldExploitation: "Observed inbound exploitation in the wild",
+	}
+	require.NoError(t, s.Validate(StageEarlyWarning, EventClassAEV, values))
+
+	// KNOWN GAP, recorded rather than papered over: Validate checks presence of
+	// required fields and nothing else. It never consults ReportingField.Format,
+	// so a malformed value is accepted for ANY field, required or optional.
+	// That predates this change and is not a consequence of relaxing the
+	// requirement — it is asserted here only so the limitation is visible
+	// instead of discovered during a live filing.
+	bad := Values{}
+	for k, v := range values {
+		bad[k] = v
+	}
+	bad[FieldCVEID] = "not-a-cve"
+	require.NoError(t, s.Validate(StageEarlyWarning, EventClassAEV, bad),
+		"documents the pre-existing absence of value-format validation")
 }
 
 func TestAFieldFromTheOtherEventClassIsNotApplicable(t *testing.T) {
