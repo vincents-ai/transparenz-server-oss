@@ -76,6 +76,19 @@ func (m *VulnzMatcher) MatchComponents(ctx context.Context, components []SBOMCom
 	}
 
 	var matches []VulnerabilityMatch
+	// Keyed by vulnerability AND component, not by CVE alone.
+	//
+	// Keying on the CVE alone meant that when two distinct components were
+	// affected by the same CVE, only the first produced a match and the second
+	// silently vanished from the result. That is the worst possible failure
+	// for exposure tracking: the report says the product is affected once, so
+	// the reader concludes the second component is clean.
+	//
+	// A component can legitimately be reached through several lookup names
+	// (its own name, and names derived from its PURL), so a CVE may be found
+	// more than once for the SAME component. Deduplicating per component still
+	// removes that redundancy, so multiple observations of one relationship
+	// merge while genuinely distinct relationships both survive.
 	seen := make(map[string]bool)
 
 	for _, comp := range components {
@@ -92,10 +105,10 @@ func (m *VulnzMatcher) MatchComponents(ctx context.Context, components []SBOMCom
 		for _, lookupName := range lookupNames {
 			entries := m.matchIdx.Lookup(lookupName, comp.Version)
 			for _, entry := range entries {
-				if seen[entry.cve] {
+				if seen[exposureKey(entry.cve, comp)] {
 					continue
 				}
-				seen[entry.cve] = true
+				seen[exposureKey(entry.cve, comp)] = true
 				score, severityLabel := m.severityNormalizer.NormalizeMetadata(entry.baseScore, entry.severity, entry.bsiSeverity)
 				match := VulnerabilityMatch{
 					ID:               uuid.New(),
@@ -280,4 +293,18 @@ func toString(v interface{}) string {
 		return ""
 	}
 	return s
+}
+
+// exposureKey identifies one vulnerability-to-component relationship.
+//
+// A vulnerability alone is not a relationship: the same CVE can affect many
+// components in one SBOM, and each of those is a separate exposure that must be
+// reported, tracked and VEX'd independently. Version and type are included
+// because two components sharing a name but differing in version or ecosystem
+// are distinct products, and a fix shipped for one is not a fix for the other.
+//
+// The separator is a byte that cannot appear in a CVE or a package name, so no
+// pair of distinct components can collide into one key.
+func exposureKey(cve string, comp SBOMComponent) string {
+	return cve + "\x00" + comp.Name + "\x00" + comp.Version + "\x00" + comp.Type
 }
