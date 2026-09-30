@@ -139,8 +139,20 @@ type Source struct {
 	// PublicationDate is when the version was published.
 	PublicationDate time.Time `json:"publication_date"`
 
-	// RetrievedAt is when Transparenz fetched it.
+	// RetrievedAt is when Transparenz fetched it. Where an artifact is retained
+	// this is that artifact's real retrieval instant; where it is not, it is the
+	// registry build time and ArtifactDerived says so, because the two are not
+	// the same claim.
 	RetrievedAt time.Time `json:"retrieved_at"`
+
+	// ArtifactDerived distinguishes a hash computed from retained source bytes
+	// from one computed from the document label. See source_artifact.go for why
+	// the distinction is load-bearing rather than cosmetic.
+	ArtifactDerived string `json:"artifact_derived"`
+
+	// Reviewer records who read the source, which is a different claim from
+	// when it was fetched.
+	Reviewer string `json:"reviewer,omitempty"`
 
 	// EffectiveFrom is when the version's content became the operative
 	// reference. Differs from PublicationDate when a document is published
