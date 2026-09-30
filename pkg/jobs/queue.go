@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	jsonutil "github.com/vincents-ai/transparenz-server-oss/pkg/util/jsonutil"
@@ -42,6 +43,9 @@ type JobQueue struct {
 	db           *gorm.DB
 	logger       *zap.Logger
 	pollInterval time.Duration
+
+	mu     sync.Mutex
+	onPoll func()
 }
 
 func NewJobQueue(db *gorm.DB, logger *zap.Logger, pollInterval time.Duration) *JobQueue {
@@ -230,6 +234,19 @@ func (q *JobQueue) Fail(ctx context.Context, jobID uuid.UUID, jobErr error) erro
 	return nil
 }
 
+// OnPoll registers a callback invoked on every poll tick, whether or not a job
+// was available.
+//
+// Without it a worker's liveness could only be observed from inside job
+// handling, so a worker with an empty queue never looked alive. That made
+// /readyz report "not ready" for a perfectly healthy service that simply had
+// no work to do, which is what stopped the k6 CI job's readiness gate.
+func (q *JobQueue) OnPoll(fn func()) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.onPoll = fn
+}
+
 func (q *JobQueue) StartWorker(ctx context.Context, jobType string, handler func(context.Context, *Job) error) {
 	q.logger.Info("starting job worker",
 		zap.String("type", jobType),
@@ -247,6 +264,13 @@ func (q *JobQueue) StartWorker(ctx context.Context, jobType string, handler func
 			q.logger.Info("job worker stopped", zap.String("type", jobType))
 			return
 		case <-ticker.C:
+			q.mu.Lock()
+			onPoll := q.onPoll
+			q.mu.Unlock()
+			if onPoll != nil {
+				onPoll()
+			}
+
 			job, err := q.Claim(ctx, jobType)
 			if err != nil {
 				q.logger.Error("failed to claim job",

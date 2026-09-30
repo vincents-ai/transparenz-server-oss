@@ -118,6 +118,11 @@ func (w *ScanWorker) EnqueueScan(ctx context.Context, scanID, orgID, sbomID uuid
 // Start launches a single scan worker goroutine. For parallel processing,
 // commercial edition wraps this with ScanWorkerPool which calls ProcessJob.
 func (w *ScanWorker) Start(ctx context.Context) {
+	// Record liveness on every poll, not only when a job is handled. With an
+	// empty queue the worker is perfectly healthy but was invisible, so
+	// /readyz reported "not ready" and any deployment waiting on readiness
+	// would never start.
+	w.queue.OnPoll(func() { w.tick.RecordTick(0) })
 	w.queue.StartWorker(ctx, "scan", w.ProcessJob)
 }
 

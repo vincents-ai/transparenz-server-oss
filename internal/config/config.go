@@ -9,7 +9,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -113,13 +115,109 @@ func LoadConfig() (*Config, error) {
 	// Load from .env file if it exists (don't error if it doesn't)
 	viper.SetConfigFile(".env")
 	if err := viper.ReadInConfig(); err != nil {
-		// Only ignore "file not found" errors, return other errors
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+		// Only ignore "file not found" errors, return other errors.
+		// Viper returns ConfigFileNotFoundError when SEARCHING config paths,
+		// but an explicit SetConfigFile(".env") that does not exist yields an
+		// *fs.PathError instead, which the type assertion below would not
+		// match. Without the os.IsNotExist check a deployment that supplies
+		// everything through the environment — which is how the k6 and
+		// playwright CI jobs run this server, and how the NixOS unit does —
+		// fails to start with "error reading config file: open .env: no such
+		// file or directory".
+		var notFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &notFound) && !os.IsNotExist(err) {
 			return nil, fmt.Errorf("error reading config file: %w", err)
 		}
 		// .env file doesn't exist, which is fine - we'll use env vars
 	}
 
+	// Bind environment variables explicitly.
+	//
+	// Viper's AutomaticEnv is used by Get* lookups, but env-only keys are not
+	// reliably included when Unmarshal builds a struct unless they are bound.
+	// Without this the environment is invisible: a deployment that supplies
+	// everything through the environment — the k6 and playwright CI jobs, and
+	// the NixOS unit — fails with "DATABASE_URL is required but not set"
+	// even though the variable is set.
+	for _, key := range []string{
+		"DATABASE_URL",
+		"BASE_URL",
+		"JWT_SECRET",
+		"ENCRYPTION_KEY",
+		"PORT",
+		"LOG_LEVEL",
+		"MAX_SBOM_SIZE",
+		"MULTI_TENANT_MODE",
+		"INSTANCE_DSNS",
+		"INSTANCE_DSN_FILE",
+		"VULNZ_WORKSPACE_PATH",
+		"VULNZ_SYNC_INTERVAL",
+		"ENISA_TIMEOUT",
+		"ALERT_TICK_INTERVAL",
+		"SLA_TICK_INTERVAL",
+		"APPROACHING_SLA_THRESHOLD",
+		"ENISA_RETRY_INTERVAL",
+		"ENISA_MAX_RETRIES",
+		"JOB_QUEUE_POLL_INTERVAL",
+		"CORS_ALLOWED_ORIGINS",
+		"METRICS_USER",
+		"METRICS_PASSWORD",
+		"GREENBONE_ENABLED",
+		"SBOM_WEBHOOK_ENABLED",
+		"TELEMETRY_ENABLED",
+		"VULNZ_DISABLED",
+		"RATE_LIMIT_DISABLED",
+		"AUTO_RESCAN",
+		"AUTO_RESCAN_KEV_ONLY",
+		"ENRICHMENT_DB_PATH",
+		"ENRICHMENT_AUTO_INIT",
+		"LICENSE_FILE",
+		"TRANSPARENZ_LICENSE",
+		"LICENSE_MODE",
+		"LICENSE_CHECK_URL",
+		"LICENSE_CHECK_API_KEY",
+		"LICENSE_GRACE_HOURS",
+		"BRANDING_PRODUCT_NAME",
+		"BRANDING_LOGO_URL",
+		"BRANDING_PRIMARY_COLOR",
+		"BRANDING_FOOTER_TEXT",
+		"HA_ENABLED",
+		"HA_NODE_NAME",
+		"HA_BIND_ADDR",
+		"HA_BIND_PORT",
+		"HA_ADVERTISE_ADDR",
+		"HA_SEED_NODES",
+		"HA_QUORUM_SIZE",
+		"SCAN_WORKERS",
+		"SCAN_WORKER_POLL_INTERVAL",
+		"WORKER_HEALTH_PORT",
+		"BILLING_SERVICE_URL",
+		"BILLING_SERVICE_API_KEY",
+		"LICENSE_CACHE_TTL",
+		"TRANSPARENZ_LICENSE_PUBLIC_KEY",
+		"LICENSE_PUBLIC_KEY_FILE",
+		"LICENSE_STATE_FILE",
+		"OIDC_ISSUER",
+		"OIDC_AUDIENCE",
+		"OIDC_JWKS_URL",
+		"OIDC_EMAIL_CLAIM",
+		"OIDC_NAME_CLAIM",
+		"OIDC_GROUPS_CLAIM",
+		"OIDC_ORG_UUID",
+		"OIDC_ORG_SLUG",
+		"OIDC_DEFAULT_ROLE",
+		"OIDC_ALLOWED_DOMAINS",
+		"OIDC_GROUP_ROLES",
+		"OIDC_DOMAIN_ORGS",
+		"OIDC_CLIENT_ID",
+		"OIDC_CLIENT_SECRET",
+		"OIDC_SCOPES",
+		"ALLOW_PASSWORD_LOGIN",
+	} {
+		if err := viper.BindEnv(key); err != nil {
+			return nil, fmt.Errorf("failed to bind env var %s: %w", key, err)
+		}
+	}
 	// Allow environment variables to override .env file
 	viper.AutomaticEnv()
 
