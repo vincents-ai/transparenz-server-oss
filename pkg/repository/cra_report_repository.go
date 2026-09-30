@@ -343,11 +343,25 @@ func (r *CRARepository) SetPEC(ctx context.Context, report cra.Report, p *cra.PE
 	if err := p.Validate(report.EventType, cra.StageNotification72h); err != nil {
 		return err
 	}
+	// pec_grounds and pec_evidence are TEXT[] columns. Passing the domain's
+	// []PECGrounds and []string directly made GORM bind the slice as a single
+	// scalar, and PostgreSQL rejected it with "malformed array literal", so
+	// recording a PEC claim failed at the database on every attempt. The domain
+	// tests never reached this write, and the BDD scenarios that would have
+	// caught it could not reach the route at all without the shared CRA report
+	// fixture, so the defect was invisible from both directions.
+	grounds := make(pq.StringArray, 0, len(p.Grounds))
+	for _, g := range p.Grounds {
+		grounds = append(grounds, string(g))
+	}
+	evidence := make(pq.StringArray, 0, len(p.Evidence))
+	evidence = append(evidence, p.Evidence...)
+
 	updates := map[string]any{
 		"pec_applicable":      p.Applicable,
-		"pec_grounds":         p.Grounds,
+		"pec_grounds":         grounds,
 		"pec_reasoning":       p.Reasoning,
-		"pec_evidence":        p.Evidence,
+		"pec_evidence":        evidence,
 		"pec_delay_requested": p.DisseminationDelayRequested,
 		"pec_decision_at":     p.DecisionAt,
 		"pec_decision_by":     p.DecisionBy,
