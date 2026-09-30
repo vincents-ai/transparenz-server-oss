@@ -226,8 +226,35 @@ func TestSchemaIsPinnedToGlossaryVersionOnePointThree(t *testing.T) {
 	_, sr := corpus(t)
 	s, err := sr.Current(RegimeCRAArticle14)
 	require.NoError(t, err)
-	assert.Equal(t, "ENISA-SRP-1.3", s.ID)
+	// New work uses V2, which carries the official glossary identifiers.
+	assert.Equal(t, SchemaIDSRPGlossaryV2, s.ID)
 	assert.Equal(t, "1.3", s.SourceKey[len(s.SourceKey)-3:])
+
+	// The V1 schema must still be registered and retrievable, unchanged, so
+	// packages and reports already generated under it stay interpretable. This
+	// is the acceptance criterion that a schema migration must never reinterpret
+	// historical data.
+	v1, ok2 := sr.Schema(SchemaIDSRPGlossaryV1)
+	require.True(t, ok2, "V1 must remain registered for historical reports")
+	assert.Equal(t, SchemaIDSRPGlossaryV1, v1.ID)
+	v1Closure, ok := v1.Field(FieldClosure)
+	require.True(t, ok, "V1 must keep its own meaning for v19")
+	assert.Equal(t, FieldClosure, v1Closure.ID,
+		"under V1, v19 is reporting closure and must NOT be reinterpreted as a CVE")
+
+	// Under V2, v19 is the CVE identifier. Both schemas are registered, so a
+	// record's own schema ID decides which meaning applies.
+	v2CVE, ok := s.Field(FieldCVEID)
+	require.True(t, ok)
+	assert.Equal(t, "v19", v2CVE.IdentifierPosition)
+	assert.True(t, v2CVE.IdentifierSourced, "the CVE position is transcribed from the official glossary")
+	assert.Equal(t, RequirementOptional, v2CVE.RequirementAt(StageEarlyWarning, EventClassAEV),
+		"the official glossary has the CVE identifier optional at early warning")
+
+	v2EUVD, ok := s.Field(FieldEUVDID)
+	require.True(t, ok)
+	assert.Equal(t, "v20", v2EUVD.IdentifierPosition)
+	assert.True(t, v2EUVD.IdentifierSourced)
 }
 
 // The six ENISA conformance fixtures the brief calls for: every combination of
@@ -323,11 +350,23 @@ func TestMissingRequiredFieldIsReportedWithTheStageAndClass(t *testing.T) {
 	var ce *ConformanceError
 	require.ErrorAs(t, err, &ce)
 	missing := map[string]bool{}
+	// Build the expected problem text from the schema's OWN id. This test used
+	// to hardcode "required by ENISA-SRP-1.3 but absent", which meant it silently
+	// matched nothing once a second schema version was registered and every
+	// assertion below passed vacuously against an empty map. A test that
+	// depends on a literal embedded in a message will not fail when the message
+	// changes; it will quietly stop testing.
+	requiredAbsent := "required by " + s.ID + " but absent"
 	for _, i := range ce.Issues() {
-		if i.Problem == "required by ENISA-SRP-1.3 but absent" {
+		if i.Problem == requiredAbsent {
 			missing[i.FieldID] = true
 		}
 	}
+	if len(missing) == 0 {
+		t.Fatalf("no issues matched %q; the assertion below would pass vacuously. Issues: %v",
+			requiredAbsent, ce.Issues())
+	}
+
 	// The CVE identifier is NOT among the missing-required fields: an
 	// organisation frequently learns of an active exploitation before any CVE
 	// exists, and refusing the report for that reason would be the worst

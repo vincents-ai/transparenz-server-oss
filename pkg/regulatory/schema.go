@@ -136,6 +136,22 @@ type ReportingField struct {
 
 	// SourceKey pins the glossary version this field definition was read from.
 	SourceKey string `json:"source_key"`
+
+	// IdentifierSourced records whether this field's OFFICIAL identifier was
+	// transcribed from the authoritative glossary, as opposed to assigned by
+	// this implementation.
+	//
+	// This is the distinction the remediation brief draws between an official
+	// mapping and a local interpretation, and it is the same provenance
+	// discipline applied to grc.Control in E03 and to regulatory sources in R02.
+	// Without it, an identifier this codebase chose is indistinguishable from one
+	// the authority published, and a consumer cannot tell which is which.
+	IdentifierSourced bool `json:"identifier_sourced"`
+
+	// IdentifierPosition is the official glossary position, e.g. "v19". It is
+	// empty when IdentifierSourced is false, so a position can never appear
+	// without its provenance.
+	IdentifierPosition string `json:"identifier_position,omitempty"`
 }
 
 // AppliesTo reports whether the field is in scope for an event class.

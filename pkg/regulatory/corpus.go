@@ -377,16 +377,145 @@ func BuildDefaultRegistry(retrievedAt time.Time) (*Registry, *SchemaRegistry, er
 		return nil, nil, err
 	}
 
-	schema, err := BuildSRPGlossarySchema(srpGlossary.Key(), srpGlossary.PublicationDate)
+	// V1 stays registered, unchanged, so packages and reports already generated
+	// under it remain interpretable. It assigns CVE to "v1" and uses "v19" for
+	// reporting closure; repointing those in place would have silently
+	// reinterpreted historical closure records as CVE identifiers.
+	v1, err := BuildSRPGlossarySchema(srpGlossary.Key(), srpGlossary.PublicationDate)
 	if err != nil {
 		return nil, nil, err
 	}
+
+	// V2 is the schema new work must use. It carries the identifiers the
+	// official glossary actually assigns: CVE is v19 and EUVD is v20.
+	// V2 is published by this build, not by the glossary's original publication
+	// date, and it MUST have a strictly later PublishedAt than V1. SchemaAt
+	// resolves "the schema current at instant T" by publication date, so two
+	// schemas sharing a date make that lookup ambiguous and the result depends
+	// on map iteration order. That produced a test failing roughly half the time
+	// rather than a clean, explicable failure.
+	v2Published := srpGlossary.PublicationDate
+	if !retrievedAt.IsZero() && retrievedAt.After(v2Published) {
+		v2Published = retrievedAt
+	}
+	v2, err := BuildSRPGlossarySchemaV2(srpGlossary.Key(), v2Published)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	sr := NewSchemaRegistry()
-	if err := sr.Register(schema); err != nil {
+	if err := sr.Register(v1); err != nil {
+		return nil, nil, err
+	}
+	if err := sr.Register(v2); err != nil {
 		return nil, nil, err
 	}
 	if err := r.Validate(); err != nil {
 		return nil, nil, err
 	}
 	return r, sr, nil
+}
+
+// SchemaIDSRPGlossaryV1 is the ORIGINAL, incorrectly transcribed glossary schema.
+//
+// It assigns CVE to "v1" and EUVD to "v2" where the official glossary assigns
+// CVE to "v19" and EUVD to "v20". It also uses "v19" for reporting closure,
+// which is the collision that made a naive constant swap dangerous: repointing
+// CVE at v19 without versioning would have reinterpreted every historical
+// closure record as a CVE identifier.
+//
+// It remains registered, unchanged, so that packages and reports already
+// generated under it stay interpretable. It must not be used for new work.
+// SchemaIDSRPGlossaryV2 is the schema for new reports.
+const (
+	SchemaIDSRPGlossaryV1 = "ENISA-SRP-1.3"
+	SchemaIDSRPGlossaryV2 = "ENISA-SRP-1.3-v2"
+)
+
+// BuildSRPGlossarySchemaV2 returns the glossary schema with the field
+// identifiers the official ENISA SRP glossary actually assigns.
+//
+// SCOPE, stated plainly because it is the honest limit of what could be done
+// here. Two identifiers are SOURCED: CVE is v19 and EUVD is v20, from the
+// official glossary, and CVE is optional at early warning. Every other field
+// keeps its existing identifier because the official identifier for it could
+// not be sourced, and inventing one would be the same class of defect this
+// whole remediation has been removing. A full field-by-field crosswalk against
+// a retained glossary artifact remains outstanding, and
+// registrySchemaIsNotFullyCrosswalked() says so in code rather than only in a
+// comment.
+//
+// The v19 collision is resolved by versioning rather than by editing. Under
+// V1, v19 means reporting closure; under V2, v19 means the CVE identifier. Both
+// schemas are registered, and a package records the schema it was built under,
+// so a historical closure record is never re-read as a CVE.
+func BuildSRPGlossarySchemaV2(sourceKey string, publishedAt time.Time) (*ReportingSchema, error) {
+	if sourceKey == "" {
+		return nil, fmt.Errorf("regulatory: SRP glossary schema v2 requires the source key it was transcribed from")
+	}
+	s := &ReportingSchema{
+		ID:          SchemaIDSRPGlossaryV2,
+		Regime:      RegimeCRAArticle14,
+		SourceKey:   sourceKey,
+		PublishedAt: publishedAt,
+		fields:      map[string]ReportingField{},
+	}
+
+	// CVE identifier. Official glossary position v19, optional at early warning.
+	if err := s.AddField(ReportingField{
+		ID: FieldCVEID, Name: "CVE identifier", Format: FormatIdentifier,
+		ApplicableTo: []EventClass{EventClassAEV},
+		Description:  "CVE identifier of the actively exploited vulnerability, per the official SRP glossary position v19",
+		Stages: []StageRequirement{
+			{StageEarlyWarning, EventClassAEV, RequirementOptional},
+			{StageNotification72h, EventClassAEV, RequirementInheritedOrUpdate},
+			{StageFinalReport, EventClassAEV, RequirementInheritedOrUpdate},
+		},
+		SourceKey:          sourceKey,
+		IdentifierSourced:  true,
+		IdentifierPosition: "v19",
+	}); err != nil {
+		return nil, err
+	}
+
+	// EUVD identifier. Official glossary position v20.
+	if err := s.AddField(ReportingField{
+		ID: FieldEUVDID, Name: "EUVD identifier", Format: FormatIdentifier,
+		ApplicableTo: []EventClass{EventClassAEV, EventClassSI},
+		Description:  "ENISA EUVD identifier where one has been assigned, per the official SRP glossary position v20",
+		Stages: []StageRequirement{
+			{StageEarlyWarning, EventClassAEV, RequirementOptional},
+			{StageNotification72h, EventClassAEV, RequirementOptional},
+			{StageFinalReport, EventClassAEV, RequirementOptional},
+			{StageEarlyWarning, EventClassSI, RequirementOptional},
+			{StageNotification72h, EventClassSI, RequirementOptional},
+			{StageFinalReport, EventClassSI, RequirementOptional},
+		},
+		SourceKey:          sourceKey,
+		IdentifierSourced:  true,
+		IdentifierPosition: "v20",
+	}); err != nil {
+		return nil, err
+	}
+
+	// Every other field carries its existing identifier, explicitly marked as
+	// NOT sourced. Marking them is the point: a consumer can tell a position
+	// transcribed from the official glossary from one this implementation
+	// assigned, and the unsourced ones can be reviewed rather than trusted.
+	v1, err := BuildSRPGlossarySchema(sourceKey, publishedAt)
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range v1.Fields() {
+		if f.ID == FieldCVEID || f.ID == FieldEUVDID {
+			continue
+		}
+		f.IdentifierSourced = false
+		f.IdentifierPosition = ""
+		f.Description += " [identifier not yet sourced from the official glossary; review required]"
+		if err := s.AddField(f); err != nil {
+			return nil, err
+		}
+	}
+	return s, nil
 }
