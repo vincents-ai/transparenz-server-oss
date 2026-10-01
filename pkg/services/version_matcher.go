@@ -56,11 +56,9 @@ func (vm *VersionMatcher) MatchVersion(compVersion, feedVersion string) VersionM
 				if compSemver.Equal(high) {
 					return ExactMatch
 				}
-			} else {
+			} else if !compSemver.LessThan(high) {
 				// exclusive: comp >= high is a no-match
-				if !compSemver.LessThan(high) {
-					return NoMatch
-				}
+				return NoMatch
 			}
 		}
 		if low != nil || high != nil {

@@ -101,11 +101,16 @@ func (b *SchemaPerOrgBackend) getOrCreateOrgDB(ctx context.Context, orgID uuid.U
 
 	orgDB, err := gorm.Open(postgres.Open(orgDSN), &gorm.Config{})
 	if err != nil {
+		// The schema exists but no usable pool came from it. Drop it rather
+		// than leaving a half-built org schema behind, which is what
+		// cleanupSchema was written for and why it existed unused.
+		b.cleanupSchema(schemaName)
 		return nil, fmt.Errorf("open org db for schema %s: %w", schemaName, err)
 	}
 
 	sqlDB, err := orgDB.DB()
 	if err != nil {
+		b.cleanupSchema(schemaName)
 		return nil, fmt.Errorf("get sql.DB for schema %s: %w", schemaName, err)
 	}
 	sqlDB.SetMaxOpenConns(10)

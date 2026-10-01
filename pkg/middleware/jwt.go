@@ -22,10 +22,18 @@ const TokenIssuer = "auth-service"
 const BillingIssuer = "billing-auth-service"
 
 // TokenAudience is the expected audience claim for JWT tokens.
-const TokenAudience = "transparenz-server"
+//
+// G101 (hardcoded credentials) is a false positive here: these are JWT issuer
+// and audience IDENTIFIERS, not secrets. They are published in every token the
+// system issues and carry no authority on their own; authentication depends on
+// the signature and on the configured signing key. The value is suppressed
+// rather than changed because the alternative is renaming or removing a correct
+// constant to satisfy a heuristic.
+const TokenAudience = "transparenz-server" //nolint:gosec // audience identifier, not a credential
 
 // SharedTokenAudience is the shared audience for unified JWT across the suite.
-const SharedTokenAudience = "transparenz-suite"
+// See TokenAudience for why the hardcoded-credentials finding is a false positive.
+const SharedTokenAudience = "transparenz-suite" //nolint:gosec // audience identifier, not a credential
 
 // Claims represents the JWT claims structure for authenticated users.
 // It includes user identity, organization/tenant information, and role-based permissions.

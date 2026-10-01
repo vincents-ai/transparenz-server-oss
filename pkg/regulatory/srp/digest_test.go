@@ -7,23 +7,6 @@ import (
 	"github.com/google/uuid"
 )
 
-func collisionPair() (Package, Package) {
-	rid, oid := uuid.New(), uuid.New()
-	base := func(fields map[string]string) Package {
-		return Package{
-			ReportID: rid, OrgID: oid,
-			EventClass: "actively_exploited_vulnerability",
-			Stage:      "early_warning",
-			SchemaID:   "ENISA-SRP-1.3",
-			// CoordinatorID is empty on purpose: identity fields must be
-			// validated too, and a package missing one should still not be
-			// forgeable into another.
-			Fields: fields,
-		}
-	}
-	return base(map[string]string{"v5": "observed"}), base(map[string]string{"v6": "high"})
-}
-
 // The original encoding let a value manufacture a field boundary, so two
 // structurally different packages hashed identically. This is the counterexample
 // from the remediation brief, reproduced before it was fixed and now pinned so

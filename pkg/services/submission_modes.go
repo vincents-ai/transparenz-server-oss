@@ -87,7 +87,7 @@ func enisaAPINotAvailableError(configured string) error {
 	return fmt.Errorf(
 		"%w: submission mode %q addresses an ENISA API that does not exist. "+
 			"ENISA's Single Reporting Platform publishes no API, so there is nothing to post to. "+
-			"Use %q to push to a national CSIRT endpoint, or %q for a document a person files.",
+			"Use %q to push to a national CSIRT endpoint, or %q for a document a person files",
 		ErrENISAAPINotAvailable, configured, SubmissionModeReceiver, SubmissionModeManual)
 }
 

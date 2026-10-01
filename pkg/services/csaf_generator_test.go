@@ -457,8 +457,14 @@ func TestCvesFromCsafDoc(t *testing.T) {
 	if cvesFromCsafDoc(models.JSONMap{}) != nil {
 		t.Fatal("expected nil for missing vulnerabilities")
 	}
-	if cvesFromCsafDoc(models.JSONMap{"vulnerabilities": []interface{}{map[string]interface{}{ /* no cve */ }}}) != nil {
-		// entry without cve is skipped -> empty (non-nil) slice is fine; just ensure no panic
+	// An entry with no cve is skipped rather than producing an empty string, so
+	// the result must contain no usable identifier at all. The previous form of
+	// this check had an empty body with only a comment, so it asserted nothing
+	// while appearing to cover the case.
+	if got := cvesFromCsafDoc(models.JSONMap{
+		"vulnerabilities": []interface{}{map[string]interface{}{ /* no cve */ }},
+	}); len(got) != 0 {
+		t.Errorf("an entry with no cve must be skipped, got %v", got)
 	}
 }
 

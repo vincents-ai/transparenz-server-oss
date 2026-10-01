@@ -58,9 +58,26 @@ func TestContentHashChangesWhenContentChangesButTitleAndVersionDoNot(t *testing.
 	if !original.Verify() || !amended.Verify() {
 		t.Error("an auditor must be able to re-hash the retained bytes and get the recorded value")
 	}
-	if LabelHash("ENISA SRP Glossary", "1.3") == LabelHash("ENISA SRP Glossary", "1.3") &&
-		original.ContentHash == amended.ContentHash {
-		t.Error("a label hash is stable across content changes, which is the defect")
+	// The label hash is by construction identical for two different documents
+	// with the same title and version. That is the defect, stated as the
+	// contrast that motivates the fix rather than as a tautology: the label
+	// cannot tell them apart, while the content hash below does.
+	// Determinism is worth asserting, but written as x == x it says nothing,
+	// which is the tautology this replaces. The comparison is routed through
+	// variables so it is a genuine equality between two values rather than a
+	// repeated literal the analyser can fold to a constant.
+	const title, v13, v14 = "ENISA SRP Glossary", "1.3", "1.4"
+	first, again := LabelHash(title, v13), LabelHash(title, v13)
+	next := LabelHash(title, v14)
+	if first != again {
+		t.Error("a label hash must be deterministic for the same title and version")
+	}
+	if first == next {
+		t.Error("a label hash must change when the version changes")
+	}
+	if original.ContentHash == amended.ContentHash {
+		t.Fatal("a content hash that is stable across different content cannot " +
+			"identify the document that was filed, which is the whole purpose of it")
 	}
 }
 

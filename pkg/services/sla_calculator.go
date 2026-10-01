@@ -734,9 +734,19 @@ func (c *SlaCalculator) applySlaAutomation(ctx context.Context, sla *models.SlaT
 		cve := sla.Cve
 		baseCtx := c.serverCtx
 		if baseCtx == nil {
+			// G118 flags the fallback to context.Background, and the finding is
+			// a false positive: this is a BACKGROUND submission that must outlive
+			// the request which triggered it, so a request-scoped context would
+			// be wrong. The preferred base is the server-lifetime context, and
+			// Background is only used when it has not been established.
 			baseCtx = context.Background()
 		}
-		go func() {
+		// G118: the goroutine is deliberately long-lived. This submission must
+		// outlive the request that triggered it, so inheriting a request-scoped
+		// context would cancel the filing as soon as the response was written.
+		// The base is the server-lifetime context, falling back to Background
+		// only when that has not been established.
+		go func() { //nolint:gosec // G118: work must outlive the triggering request
 			submitCtx, cancel := context.WithTimeout(baseCtx, 30*time.Second)
 			defer cancel()
 			sub, err := c.enisaService.Submit(submitCtx, orgID, cve, nil)
