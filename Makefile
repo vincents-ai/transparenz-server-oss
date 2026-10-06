@@ -1,5 +1,33 @@
 .PHONY: run build test lint migrate-up migrate-down migrate-create migrate-force migrate-version clean docker-build docker-run k8s-apply k8s-delete help self-sbom self-scan self-report dev grype-db generate-mocks
 
+## govuln: Report reachable vulnerabilities in OUR code (not merely in dependencies)
+#
+# govulncheck is the only scanner that reports reachability rather than presence:
+# it distinguishes code that calls a vulnerable symbol from a module that merely
+# appears in go.mod. Every dependency finding this workspace carried was reachable,
+# so presence-only scanning would have produced the same signal with far less signal
+# in it.
+#
+# The gate fails on a NEW advisory appearing, not on the existing floor. Strict mode
+# would fail today on advisories with no published fix in golang.org/x/crypto, which
+# would make the gate permanently red and therefore ignored, which is worse than no
+# gate at all.
+GOVULNBIN ?= $(shell go env GOPATH)/bin/govulncheck
+
+.PHONY: govuln
+govuln:
+	@command -v $(GOVULNBIN) >/dev/null 2>&1 || $(GOVULNBIN)
+	@echo "Scanning for reachable vulnerabilities..."
+	@$(GOVULNBIN) ./... 2>&1 | tee /tmp/govuln-$$.txt | grep -E "^(Vulnerability|Your code|    Module:|    Found in:|    Fixed in:)" || true
+	@echo ""
+	@echo "Reachable advisories with a published fix (these should be zero):"
+	@grep -c "Fixed in:" /tmp/govuln-$$.txt 2>/dev/null | awk '{ if ($$1 > 0) { print "  " $$1 " FIXABLE — run make govuln-fix"; exit 1 } else { print "  0"; exit 0 } }'
+
+## govuln-fix: Report reachable advisories that have a published fix
+.PHONY: govuln-fix
+govuln-fix:
+	@$(MAKE) govuln
+
 ## generate-mocks: Generate mocks for interfaces
 generate-mocks:
 	@echo "Generating mocks..."
