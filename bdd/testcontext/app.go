@@ -98,7 +98,23 @@ func BuildApp(ctx context.Context, db *gorm.DB, logger *zap.Logger) (*gin.Engine
 		c.JSON(200, gin.H{"type": "about:blank", "title": "OK", "status": 200, "detail": "service is healthy"})
 	})
 
+	// Mirrors the shipped /readyz in cmd/server/main.go rather than returning a
+	// literal. This previously answered 200 unconditionally, so every scenario that
+	// asserted readiness was asserting that a literal is 200 and could not fail.
+	// The /health handler directly above already pings the database, so the
+	// dependency was already in scope and the omission was not a constraint.
 	router.GET("/readyz", func(c *gin.Context) {
+		sqlDB, err := db.DB()
+		if err != nil || sqlDB.PingContext(c.Request.Context()) != nil {
+			c.Header("Content-Type", "application/problem+json")
+			c.JSON(503, gin.H{
+				"type":   "about:blank",
+				"title":  "Service Unavailable",
+				"status": 503,
+				"detail": "database unreachable",
+			})
+			return
+		}
 		c.JSON(200, gin.H{"status": "service is ready"})
 	})
 
