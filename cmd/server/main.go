@@ -10,6 +10,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+
+	"github.com/vincents-ai/transparenz-server-oss/internal/readiness"
 	"os"
 	"os/signal"
 	"syscall"
@@ -169,18 +171,26 @@ func runServer() {
 	})
 
 	router.GET("/readyz", func(c *gin.Context) {
+		// Delegates to internal/readiness, shared with the BDD harness so the two
+		// copies of this endpoint cannot drift apart again. It previously returned
+		// 200 unconditionally there and the harness carried a stub, which is how a
+		// readiness step came to pass without testing anything.
 		sqlDB, err := db.DB()
-		if err != nil || sqlDB.Ping() != nil {
+		if err != nil {
 			c.Header("Content-Type", "application/problem+json")
-			c.JSON(http.StatusServiceUnavailable, gin.H{"type": "about:blank", "title": "Not Ready", "status": 503, "detail": "database disconnected"})
+			c.JSON(503, gin.H{"type": "about:blank", "title": "Service Unavailable",
+				"status": 503, "detail": "database handle unavailable"})
 			return
 		}
-		if !healthRegistry.IsHealthy() {
+		res := readiness.Evaluate(c.Request.Context(), &readiness.Checker{
+			DB: sqlDB, Health: healthRegistry,
+		})
+		if !res.Ready {
 			c.Header("Content-Type", "application/problem+json")
-			c.JSON(http.StatusServiceUnavailable, healthRegistry.Summary())
+			c.JSON(res.HTTPStatus(), healthRegistrySummary(healthRegistry, res))
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"status": "service is ready"})
+		c.JSON(res.HTTPStatus(), gin.H{"status": "service is ready"})
 	})
 
 	// Metrics endpoint (minimal — Prometheus metrics require commercial edition)
@@ -307,4 +317,17 @@ func metricsAuth(cfg *config.Config) gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+// healthRegistrySummary renders the problem body for a not-ready result,
+// preserving the health registry's own summary when it provides one.
+func healthRegistrySummary(reg *services.HealthRegistry, res readiness.Result) gin.H {
+	body := gin.H{"type": "about:blank", "title": "Service Unavailable",
+		"status": res.HTTPStatus(), "detail": res.Detail}
+	if reg != nil {
+		if s := reg.Summary(); len(s) > 0 {
+			return s
+		}
+	}
+	return body
 }
