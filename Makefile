@@ -21,7 +21,7 @@ govuln:
 	@$(GOVULNBIN) ./... 2>&1 | tee /tmp/govuln-$$.txt | grep -E "^(Vulnerability|Your code|    Module:|    Found in:|    Fixed in:)" || true
 	@echo ""
 	@echo "Reachable advisories with a published fix (these should be zero):"
-	@grep -c "Fixed in:" /tmp/govuln-$$.txt 2>/dev/null | awk '{ if ($$1 > 0) { print "  " $$1 " FIXABLE — run make govuln-fix"; exit 1 } else { print "  0"; exit 0 } }'
+	@grep "Fixed in:" /tmp/govuln-$$.txt | grep -vc "Fixed in: N/A" 2>/dev/null | awk '{ if ($$1 > 0) { print "  " $$1 " FIXABLE — run make govuln-fix"; exit 1 } else { print "  0"; exit 0 } }'
 
 ## govuln-fix: Report reachable advisories that have a published fix
 .PHONY: govuln-fix
