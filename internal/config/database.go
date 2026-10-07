@@ -103,12 +103,27 @@ func InitMultiTenantDB(cfg *Config) (*gorm.DB, repository.TenantBackend, error) 
 			return nil, nil, err
 		}
 		return db, repository.NewSchemaPerOrgBackend(db, "./migrations", cfg.DatabaseURL), nil
-	default:
+	case "", "shared":
+		// The empty value is the legitimate default, matching the viper default.
 		db, err := InitDB(cfg.DatabaseURL)
 		if err != nil {
 			return nil, nil, err
 		}
 		return db, repository.NewStandardBackend(db), nil
+	default:
+		// FAIL LOUD. This previously fell through to the shared backend, so a typo in
+		// MULTI_TENANT_MODE silently downgraded a deployment configured for
+		// per-organisation isolation to a single shared database. Nothing warned,
+		// because nothing was wrong from the process's point of view.
+		//
+		// Shared mode isolates tenants by nothing but an org_id predicate on each
+		// query, so an unrecognised value is a silent loss of the isolation the
+		// operator asked for. Refusing to start is the only outcome that cannot be
+		// misread as working. This mirrors the same fix in the commercial
+		// distribution, where the identical defect was found first.
+		return nil, nil, fmt.Errorf(
+			"unknown MULTI_TENANT_MODE %q: valid values are %q, %q and %q",
+			cfg.MultiTenantMode, "shared", "schema_per_org", "instance_per_org")
 	}
 }
 

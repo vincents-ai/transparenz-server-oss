@@ -275,5 +275,20 @@ func validateConfig(config *Config) error {
 		return fmt.Errorf("ENCRYPTION_KEY must be exactly 32 characters long (current length: %d)", len(config.EncryptionKey))
 	}
 
+	// Validate MULTI_TENANT_MODE. Validated here rather than only in InitMultiTenantDB
+	// because validating at load fails earliest and catches every caller, including
+	// any that never reaches the database initialiser.
+	//
+	// An unrecognised value previously produced a working shared single-tenant
+	// deployment with no error anywhere, so a typo in the variable selecting the
+	// isolation strategy was indistinguishable from a correct one.
+	switch config.MultiTenantMode {
+	case "", "shared", "schema_per_org", "instance_per_org":
+	default:
+		return fmt.Errorf(
+			"MULTI_TENANT_MODE %q is not a valid isolation mode (valid: shared, schema_per_org, instance_per_org)",
+			config.MultiTenantMode)
+	}
+
 	return nil
 }
