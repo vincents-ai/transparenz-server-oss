@@ -95,6 +95,29 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    # A database is required here, not only in the integration and bdd jobs.
+    # internal/testutil/TestMigrationsApplyToEmptyDatabase applies every migration to a
+    # live PostgreSQL and skips when TEST_DATABASE_URL is unset, so without this the
+    # only test that proves the schema actually builds never runs in this job. A skip
+    # names a missing environment variable rather than a failing assertion, so it is
+    # easy to miss in output and easy to leave in place after someone deletes an
+    # apparently unused service block.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: pass
+          POSTGRES_DB: transparenz_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_DATABASE_URL: postgres://user:pass@localhost:5432/transparenz_test?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
