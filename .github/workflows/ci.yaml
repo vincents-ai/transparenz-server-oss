@@ -152,7 +152,11 @@ jobs:
       # of them had stopped compiling entirely. Building them here (and running
       # them against the job's database) is what keeps that from rotting again.
       - name: Integration-tagged tests in pkg and internal
-        run: go test -count=1 -tags integration ./pkg/... ./internal/...
+        # -p 1 for the same reason as the job above: internal/testutil's migration
+        # test drops and re-creates the compliance schema, so a package running
+        # concurrently against the same database fails for reasons unrelated to
+        # its own code.
+        run: go test -count=1 -p 1 -tags integration ./pkg/... ./internal/...
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
       - name: Check coverage

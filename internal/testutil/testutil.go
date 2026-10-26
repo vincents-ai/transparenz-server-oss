@@ -87,7 +87,14 @@ func CreateTestOrg(t *testing.T, db *gorm.DB) *models.Organization {
 		PdfTemplate:         "generic",
 		SlaTrackingMode:     "per_cve",
 	}
-	if err := db.Create(org).Error; err != nil {
+	// The NIS2 routing columns are nullable and format-constrained (migration
+	// 000043), and the model carries them as plain strings, so a plain Create
+	// sends '' and the CHECK rejects it — which made this helper fail against a
+	// migrated database and only ever in the integration-tagged tests. Omitting
+	// the unset columns lets the NULL default apply; the repository does the same
+	// thing for production writes, but importing it here would close an import
+	// cycle through pkg/middleware.
+	if err := db.Omit("NIS2EntityClass", "NIS2MemberState").Create(org).Error; err != nil {
 		t.Fatalf("failed to create test org: %v", err)
 	}
 	return org

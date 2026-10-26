@@ -19,6 +19,7 @@ import (
 	"github.com/vincents-ai/transparenz-server-oss/pkg/repository"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var greenboneSbomNamespace = uuid.MustParse("a441b15f-9762-4307-b8dd-6646e4bb7085")
@@ -113,7 +114,14 @@ func (s *GreenboneService) ProcessReport(ctx context.Context, orgID uuid.UUID, w
 		SHA256:    "",
 		Document:  []byte(`{"bomFormat":"CycloneDX","specVersion":"1.5"}`),
 	}
-	if err := tx.Create(sbom).Error; err != nil {
+	// Idempotent on purpose. The SBOM row is derived from (org, report id), so a
+	// webhook delivered twice — a retry after a timeout, a replayed request, or a
+	// sender that does not know its first attempt succeeded — names the same
+	// document. A plain insert failed the second delivery with a duplicate key and
+	// rolled back, which made the "already processed by concurrent request"
+	// handling below unreachable: the flow never got that far. Creating it only if
+	// absent lets the scan insert be the thing that detects a duplicate.
+	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(sbom).Error; err != nil {
 		tx.Rollback()
 		return fmt.Errorf("failed to create greenbone SBOM record: %w", err)
 	}
