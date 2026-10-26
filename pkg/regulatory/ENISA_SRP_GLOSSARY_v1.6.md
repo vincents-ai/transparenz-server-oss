@@ -2,17 +2,23 @@
 
 **Source:** https://www.enisa.europa.eu/topics/product-security/single-reporting-platform-srp/cra-srp-glossary2
 **Version:** 1.6 — last update 21 October 2026
-**Retained:** 2026-10-26, from an operator-supplied copy.
+**Retained:** 2026-10-26, fetched directly (HTTP 200; ENISA answers a browser
+user-agent and refuses some automated clients).
 
-**Provenance caveat, and what the hash covers.** ENISA returns HTTP 403 to
-automated fetch, so this file is not a byte-for-byte copy of the published page.
-It was transcribed from a human-supplied copy of the v1.6 table and then
-normalised into the table style already used for
-`ENISA_SRP_GLOSSARY_v1.4.md` in this directory: prose that the publisher spread
-across several unlabelled cells is placed under one column, and the three
-per-stage columns are given fixed headers. A SHA-256 over this file therefore
-attests to *this transcription*, not to ENISA's HTML. Mark it `retained` for this
-file; do not claim it is a hash of the published document.
+**Provenance, and what the hash covers.** This file is a normalisation of the
+published page rather than its raw HTML: prose the publisher spreads across
+unlabelled table cells is placed under one column and the three per-stage
+columns are given fixed headers. A SHA-256 over this file therefore attests to
+*this transcription*, not to ENISA's markup. `ENISA_SRP_GLOSSARY_v1.6.table.tsv`
+sits beside it holding the field positions, applicability and the three
+requiredness columns verbatim from the published table, and
+`TestV16MatrixMatchesThePublishedTable` compares that against the schema on every
+test run — so the transcription is checked against the authority's own table
+rather than believed.
+
+An earlier operator-supplied copy of the same version produced this file; the
+direct fetch agreed with it on every position, applicability and requiredness
+value, and is what the retained copy is now based on.
 
 Unlike v1.4, v1.6 publishes an explicit per-stage requiredness column for **every**
 field, including the common fields. That is the single most consequential

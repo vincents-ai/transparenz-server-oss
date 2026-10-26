@@ -1,0 +1,52 @@
+# ENISA CRA SRP Glossary v1.6 - machine-readable requiredness matrix
+# Extracted from the published table at
+# https://www.enisa.europa.eu/topics/product-security/single-reporting-platform-srp/cra-srp-glossary2
+# Fetched 2026-10-26 (HTTP 200). Text from the EW/72h/FR columns is reproduced verbatim;
+# the test that consumes this file maps it onto regulatory.Requirement and fails on any
+# difference from the schema this repository ships.
+#
+# position	applies	EW	72h	FR	field
+position	applies	EW	72h	FR	field
+1	Both	Required	N/A	N/A	Notification type (Actively Exploited Vulnerability/Severe Incident)
+2	Both	Required	N/A	N/A	Title
+3	Both	Required	N/A	N/A	Summary
+4	Both	Required	N/A	N/A	Manufacturer name
+5	Both	Required	N/A	N/A	Member States where product available (CSIRT Designated as Coordinator and Concerned CSIRTs)
+6	Both	Required	N/A	N/A	Product Name
+7	Both	Required	N/A	N/A	Product Version
+7a	Both	Optional	N/A	N/A	Additional Information
+8	Both	Optional	N/A	N/A	Product Type (Default/Important Product with Digital Elements/Critical Product with Digital Elements)
+9	Both	Optional	N/A	N/A	Product class
+10	Both	Optional	N/A	N/A	Product category
+11	Both	Optional	N/A	N/A	End of the support indicator
+12	Both	Optional	N/A	N/A	Component name
+13	Both	Optional	N/A	N/A	Mitigating measure expected shortly
+14	Both	Optional	N/A	N/A	User Action able to reduce impact
+15	Both	Optional	Optional	N/A	Considered sensitivity of information
+16	Both	Optional	Optional	Required	Corrective or mitigating measures taken
+17	Both	Optional	Optional	Required	Corrective or mitigating measures that users can take
+18	Both	N/A	Optional	N/A	Attack vector
+v19	AEV	Optional	N/A	N/A	CVE ID
+v20	AEV	Optional	N/A	N/A	EUVD ID
+v21	AEV	Optional	Required	N/A	General information
+v22	AEV	Optional(after completion of v17)	Optional (after completion of v17)	Required	Date when corrective or mitigating measure has been available
+v23	AEV	Optional	Optional	Required	Details about the security update/corrective measure available
+v24	AEV	Optional	Optional	Required	Description of the severity of the vulnerability
+v25	AEV	Optional	Optional	Required	Description of the impact of the vulnerability
+v26	AEV	Mandatory	N/A	N/A	Date and time when you become aware of the Actively Exploited Vulnerability
+v26a	AEV	Optional	By default copied from previous step	N/A	Date and time when the Actively Exploited Vulnerability occurred (UTC time)
+v27	AEV	Optional	Optional	Required if such information available	Malicious actor that has exploited/is exploiting the vulnerability
+v28	AEV	N/A	Optional	N/A	Particularly Exceptional Circumstances (PEC)
+v29	AEV	N/A	Optional upon PEC activation	N/A	PEC Delay Reason
+v30	AEV	N/A	Optional under PEC activation	N/A	Please provide further information
+i31	SI	Required	By default copied from previous step, or updated	N/A	Incident is suspected of unlawful or malicious acts
+i32	SI	Optional	Required	N/A	General information, about the nature of the incident
+i33	SI	Optional	Optional	Required	Applied and ongoing mitigation measures
+i34	SI	Optional	Optional	Required	Detailed description of the Severity of the incident
+i35	SI	Optional	Optional	Required	Detailed description of the Impact of the incident
+i36	SI	Optional	Optional	Required	Type of Threat or root cause that is likely to have triggered incident
+i37	SI	Mandatory	N/A	N/A	Date and time when you become aware of the incident (UTC time)
+i38	SI	Optional	Optional	N/A	Date and time when the incident occurred (UTC time)
+i39	SI	Optional	Required	N/A	Initial assessment of the incident
+40	Both	Optional	Optional	Optional	AR Note
+41	Both	Optional	Optional	Optional	CSIRT Note
