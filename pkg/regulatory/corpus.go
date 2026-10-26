@@ -342,16 +342,18 @@ func BuildDefaultRegistry(retrievedAt time.Time) (*Registry, *SchemaRegistry, er
 	}
 	craSource.AttachArtifact(CRARegulationArtifact())
 	craSource.SourceURL = craRegulationCanonicalURL
+	// Retained, and named after the document that exists. The previous entry
+	// called itself "Commission Guidance on CRA Article 14 reporting" dated
+	// 2026-07-01; there is no such document, and the guidance it intended to cite
+	// is general CRA guidance whose Article 14 material is one subsection.
 	commissionGuidance := Source{
 		Authority:       AuthorityCommissionGuidance,
-		Document:        "Commission Guidance on CRA Article 14 reporting",
-		Version:         "C(2026) 5252",
-		ArtifactDerived: ArtifactLabelDerived,
-		PublicationDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
-		RetrievedAt:     retrievedAt,
+		Document:        commissionGuidanceDocument,
+		ArtifactDerived: ArtifactRetained,
+		PublicationDate: commissionGuidancePublished,
 		EffectiveFrom:   time.Date(2026, 9, 11, 0, 0, 0, 0, time.UTC),
-		SourceHash:      ComputeSourceHash([]byte("CRA-ART14-GUIDANCE|C(2026) 5252")),
 	}
+	commissionGuidance.AttachArtifact(CommissionGuidanceArtifact())
 	srpGlossary := Source{
 		Authority:       AuthorityENISAOperationalGuidance,
 		Document:        DocSRPGlossary,
@@ -363,16 +365,16 @@ func BuildDefaultRegistry(retrievedAt time.Time) (*Registry, *SchemaRegistry, er
 		SourceHash:      ComputeSourceHash([]byte(DocSRPGlossary + "|1.3")),
 		SourceURL:       "https://www.enisa.europa.eu/topics/cra/single-reporting-platform",
 	}
+	// Retained, and dated from the page instead of from a guess: the FAQ says
+	// "Updated: 15 October 2026", not the 2026-09-17 the registry claimed.
 	srpFAQ := Source{
 		Authority:       AuthorityENISAOperationalGuidance,
-		Document:        "ENISA SRP FAQ",
-		Version:         "2026-09-17",
-		ArtifactDerived: ArtifactLabelDerived,
-		PublicationDate: time.Date(2026, 9, 17, 0, 0, 0, 0, time.UTC),
-		RetrievedAt:     retrievedAt,
-		EffectiveFrom:   time.Date(2026, 9, 17, 0, 0, 0, 0, time.UTC),
-		SourceHash:      ComputeSourceHash([]byte("ENISA-SRP-FAQ|2026-09-17")),
+		Document:        srpFAQDocument,
+		ArtifactDerived: ArtifactRetained,
+		PublicationDate: srpFAQUpdated,
+		EffectiveFrom:   srpFAQUpdated,
 	}
+	srpFAQ.AttachArtifact(SRPFAQArtifact())
 
 	// The v1.6 glossary is the first source in this registry whose hash is
 	// computed from retained text rather than from a label. That is the whole
