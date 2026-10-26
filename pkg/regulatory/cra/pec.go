@@ -22,35 +22,73 @@ import (
 type PECGrounds string
 
 const (
-	// PECGroundActiveRemediation — a corrective or mitigating measure is
-	// imminent and disclosure before it lands would negate its effect.
-	PECGroundActiveRemediation PECGrounds = "active_remediation"
+	// The three grounds the Regulation actually provides.
+	//
+	// Article 16(2) permits withholding the full 72-hour notification from
+	// simultaneous access by ENISA, and delaying wider dissemination, only where
+	// the manufacturer indicates one of these. They are narrow and factual.
 
-	// PECGroundOperationalSecurity — disclosure would reveal defensive
-	// posture or detection capability in a way that materially increases harm
-	// to users.
+	// PECGroundExploitedInOneMemberState — the vulnerability has been actively
+	// exploited by a malicious actor and, on the information available, in no
+	// Member State other than that of the coordinating CSIRT.
+	PECGroundExploitedInOneMemberState PECGrounds = "exploited_in_one_member_state"
+
+	// PECGroundEssentialInterests — immediate further dissemination would likely
+	// supply information whose disclosure would be contrary to that Member
+	// State's essential interests.
+	PECGroundEssentialInterests PECGrounds = "essential_interests"
+
+	// PECGroundImminentHighRisk — the vulnerability poses an imminent high
+	// cybersecurity risk stemming from further dissemination.
+	PECGroundImminentHighRisk PECGrounds = "imminent_high_risk"
+
+	// The grounds below are a local vocabulary that predates the alignment with
+	// Article 16(2), and none of them is a statutory ground. They remain KNOWN so
+	// that claims recorded under them are still readable: silently failing to
+	// parse a filed claim would be worse than reading it and flagging it. They are
+	// NOT accepted for new claims — see Validate.
+	//
+	// Deprecated: use one of the three statutory grounds above.
+	PECGroundActiveRemediation   PECGrounds = "active_remediation"
 	PECGroundOperationalSecurity PECGrounds = "operational_security"
-
-	// PECGroundLawEnforcement — law-enforcement or judicial proceedings
-	// require the timing to differ.
-	PECGroundLawEnforcement PECGrounds = "law_enforcement"
-
-	// PECGroundPersonalData — the information would require disclosure of
-	// personal data whose protection outweighs the timing.
-	PECGroundPersonalData PECGrounds = "personal_data"
-
-	// PECGroundOther — a ground ENISA's criteria do not name. Requires
-	// reasoning and evidence, as does every ground, but carries the
-	// additional expectation of explaining why none of the named grounds
-	// applied.
-	PECGroundOther PECGrounds = "other"
+	PECGroundLawEnforcement      PECGrounds = "law_enforcement"
+	PECGroundPersonalData        PECGrounds = "personal_data"
+	PECGroundOther               PECGrounds = "other"
 )
 
+// StatutoryPECGrounds returns the three Article 16(2) grounds, for error messages
+// that have to tell a filer what they may choose instead.
+func StatutoryPECGrounds() []PECGrounds {
+	return []PECGrounds{
+		PECGroundExploitedInOneMemberState,
+		PECGroundEssentialInterests,
+		PECGroundImminentHighRisk,
+	}
+}
+
 // Valid reports whether g is a known ground.
+// Valid reports whether g is a ground this package knows about, statutory or
+// superseded.
+//
+// It is deliberately wider than Statutory: a claim recorded under the older
+// vocabulary must still read back correctly, because a filer's historical claim is
+// a fact about what they asserted, not a parse error. What separates the two is
+// whether a NEW claim may use the ground.
 func (g PECGrounds) Valid() bool {
 	switch g {
+	case PECGroundExploitedInOneMemberState, PECGroundEssentialInterests, PECGroundImminentHighRisk:
+		return true
 	case PECGroundActiveRemediation, PECGroundOperationalSecurity,
 		PECGroundLawEnforcement, PECGroundPersonalData, PECGroundOther:
+		return true
+	}
+	return false
+}
+
+// Statutory reports whether g is one of the three grounds Article 16(2) provides.
+func (g PECGrounds) Statutory() bool {
+	switch g {
+	case PECGroundExploitedInOneMemberState, PECGroundEssentialInterests, PECGroundImminentHighRisk:
 		return true
 	}
 	return false
@@ -116,12 +154,19 @@ func (p *PEC) Validate(eventType EventType, stage Stage) error {
 		return errors.New("cra: a PEC claim requires at least one ground")
 	}
 	for _, g := range p.Grounds {
-		if !g.Valid() {
-			return fmt.Errorf("cra: PEC ground %q is not a known ground", g)
+		if g.Statutory() {
+			continue
 		}
-	}
-	if p.Grounds[len(p.Grounds)-1] == PECGroundOther && p.Reasoning == "" {
-		return errors.New("cra: PEC ground 'other' requires reasoning")
+		if g.Valid() {
+			// Known, but not a ground the SRP form offers. Refusing it here rather
+			// than accepting a plausible-sounding substitute is the whole point:
+			// the authority has three grounds, and a claim under one of these would
+			// assert a legal basis that does not exist.
+			return fmt.Errorf("%w: PEC ground %q is not one of the Article 16(2) grounds; "+
+				"use one of %v. It remains readable on claims recorded before this "+
+				"alignment, but a new claim cannot assert it", ErrInvalidReport, g, StatutoryPECGrounds())
+		}
+		return fmt.Errorf("cra: PEC ground %q is not a known ground", g)
 	}
 	if p.Reasoning == "" {
 		return errors.New("cra: a PEC claim requires reasoning")

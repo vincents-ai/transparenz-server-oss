@@ -71,13 +71,21 @@ func craTestDB(t *testing.T) *gorm.DB {
 
 func craTestOrg(t *testing.T, db *gorm.DB) uuid.UUID {
 	t.Helper()
-	// Only the primary key is inserted. A real deployment's organizations
-	// table has name/slug and more, but this test needs nothing beyond a row
-	// that satisfies the foreign key, and hard-coding the full column list
-	// would break against any schema variation.
+	// Inserting only the primary key works against a bare schema and fails against
+	// a MIGRATED one, where organizations.name and .slug are NOT NULL — which is
+	// the schema a deployment actually has. The insert therefore supplies them when
+	// the columns exist, rather than assuming the minimal shape.
 	id := uuid.New()
+	cols, placeholders, args := []string{"id"}, []string{"?"}, []any{id}
+	if db.Migrator().HasColumn("compliance.organizations", "name") {
+		cols = append(cols, "name", "slug")
+		placeholders = append(placeholders, "?", "?")
+		args = append(args, "CRA Repository Test Org", "cra-repo-"+id.String()[:8])
+	}
 	require.NoError(t, db.Exec(
-		`INSERT INTO compliance.organizations (id) VALUES (?) ON CONFLICT (id) DO NOTHING`, id).Error)
+		`INSERT INTO compliance.organizations (`+strings.Join(cols, ", ")+
+			`) VALUES (`+strings.Join(placeholders, ", ")+`) ON CONFLICT (id) DO NOTHING`,
+		args...).Error)
 	return id
 }
 
@@ -306,7 +314,7 @@ func TestCRARepository_DatabaseRefusesHandBuiltPecOnASevereIncident(t *testing.T
 			(id, org_id, cve, event_type, state, awareness_at, awareness_evidence,
 			 pec_applicable, pec_grounds, pec_reasoning, pec_evidence, pec_decision_at, pec_decision_by)
 		VALUES (?, ?, 'CVE-Y', 'SEVERE_INCIDENT', 'REPORTABLE_SI', ?, 'ref',
-			TRUE, ARRAY['active_remediation'], 'because', ARRAY['rp-9'], ?, 'legal')`,
+			TRUE, ARRAY['essential_interests'], 'because', ARRAY['rp-9'], ?, 'legal')`,
 		uuid.New(), orgID, craNow, craNow).Error
 	require.Error(t, err, "the database must reject PEC on a severe incident")
 }

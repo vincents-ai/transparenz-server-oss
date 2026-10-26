@@ -320,7 +320,7 @@ func TestResubmissionKeepsTheFirstRecordedInstant(t *testing.T) {
 func TestPECIsRejectedForSevereIncidents(t *testing.T) {
 	pec := &PEC{
 		Applicable: true,
-		Grounds:    []PECGrounds{PECGroundActiveRemediation},
+		Grounds:    []PECGrounds{PECGroundEssentialInterests},
 		Reasoning:  "patch imminent",
 		Evidence:   []string{"release plan RP-9"},
 		DecisionAt: ptr(mustTime(t, "2026-09-22T10:00:00Z")),
@@ -360,14 +360,50 @@ func TestPECRequiresGroundsReasoningEvidenceAndAHumanDecision(t *testing.T) {
 	require.Error(t, noActor.Validate(EventTypeAEV, StageNotification72h))
 }
 
-func TestPECGroundOtherRequiresReasoning(t *testing.T) {
+// The grounds a new claim may assert are the three Article 16(2) provides, and
+// only those. The older vocabulary is still readable on claims recorded under it,
+// but a new claim cannot assert a legal basis that does not exist.
+func TestOnlyArticle16GroundsMayBeAssertedOnANewClaim(t *testing.T) {
 	pec := validPEC(t)
 	pec.Grounds = []PECGrounds{PECGroundOther}
-	pec.Reasoning = ""
-	require.Error(t, pec.Validate(EventTypeAEV, StageNotification72h))
-
 	pec.Reasoning = "a supply-chain compromise at the upstream vendor is being jointly investigated"
-	require.NoError(t, pec.Validate(EventTypeAEV, StageNotification72h))
+
+	err := pec.Validate(EventTypeAEV, StageNotification72h)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidReport)
+	assert.Contains(t, err.Error(), "not one of the Article 16(2) grounds")
+
+	// The message has to name what may be chosen instead, or a filer on a deadline
+	// is left guessing.
+	for _, g := range StatutoryPECGrounds() {
+		assert.Contains(t, err.Error(), string(g))
+	}
+
+	// And the statutory three are accepted.
+	for _, g := range StatutoryPECGrounds() {
+		ok := validPEC(t)
+		ok.Grounds = append(ok.Grounds, g)
+		assert.NoError(t, ok.Validate(EventTypeAEV, StageNotification72h),
+			"%s is a statutory ground and must be accepted", g)
+	}
+}
+
+// A claim recorded before the alignment remains readable: Valid recognises the
+// superseded grounds even though Statutory does not.
+func TestSupersededGroundsRemainReadable(t *testing.T) {
+	for _, g := range []PECGrounds{
+		PECGroundActiveRemediation, PECGroundOperationalSecurity,
+		PECGroundLawEnforcement, PECGroundPersonalData, PECGroundOther,
+	} {
+		assert.True(t, g.Valid(), "%s must still parse so a recorded claim is not lost", g)
+		assert.False(t, g.Statutory(), "%s is not an Article 16(2) ground", g)
+	}
+	for _, g := range StatutoryPECGrounds() {
+		assert.True(t, g.Statutory())
+		assert.True(t, g.Valid(), "a statutory ground is also a known ground")
+	}
+	assert.False(t, PECGrounds("invented").Valid())
+	assert.False(t, PECGrounds("invented").Statutory())
 }
 
 func TestPECIsNeverDecidedAutomatically(t *testing.T) {
@@ -393,7 +429,7 @@ func validPEC(t *testing.T) *PEC {
 	t.Helper()
 	return &PEC{
 		Applicable: true,
-		Grounds:    []PECGrounds{PECGroundActiveRemediation, PECGroundOperationalSecurity},
+		Grounds:    []PECGrounds{PECGroundEssentialInterests, PECGroundImminentHighRisk},
 		Reasoning: "A patch is in final validation; disclosure before publication would let actors " +
 			"reproduce the fix and re-arm the exploit before users can update.",
 		Evidence:   []string{"release plan RP-9", "vendor build log 2026-09-22"},
