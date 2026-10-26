@@ -17,7 +17,11 @@ jobs:
           go-version-file: go.mod
       - uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.0
+          # Pinned to a release built with Go >= the module's target. v2.0 was
+          # built with Go 1.24 and refuses to load a config for a 1.26 module:
+          # "can't load config: the Go language version (go1.24) used to build
+          # golangci-lint is lower than the targeted Go version".
+          version: v2.11.4
           args: --timeout=5m
 
   # Regulatory conformance gate.
@@ -127,6 +131,14 @@ jobs:
           go-version-file: go.mod
       - name: Download dependencies
         run: go mod download
+      # The repository tests write real rows against a real database, so the schema
+      # has to exist before they run. Without this step they failed against an
+      # empty database with "column ... does not exist" and "relation does not
+      # exist" — errors that read like product bugs and were only ever seen here.
+      - name: Apply migrations
+        run: go run ./cmd/migrate
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
       # -p 1 is required here, not a preference: internal/testutil's migration test
       # drops and re-creates the compliance schema, so any package running
       # concurrently against the same database fails with errors that look like

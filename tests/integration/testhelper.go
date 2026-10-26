@@ -58,12 +58,30 @@ func ServerRoot() string {
 	return "."
 }
 
-// AuthRoot returns the auth-service source directory.
+// AuthRoot returns the auth-service source directory, or "" when it is not
+// checked out beside this repository.
+//
+// The default used to be the absolute path /home/shift/code/auth-service, which
+// exists only on one developer's machine: in CI every test that starts the stack
+// failed with "chdir /home/shift/code/auth-service: no such file or directory".
+// The same walk-up that ServerRoot uses finds a sibling checkout wherever the
+// repository happens to live.
 func AuthRoot() string {
 	if v := os.Getenv(envAuthRoot); v != "" {
 		return v
 	}
-	return "/home/shift/code/auth-service"
+	wd, _ := os.Getwd()
+	for dir := wd; dir != "/"; dir = filepath.Dir(dir) {
+		for _, candidate := range []string{
+			filepath.Join(dir, "auth-service"),
+			filepath.Join(filepath.Dir(dir), "auth-service"),
+		} {
+			if _, err := os.Stat(filepath.Join(candidate, "go.mod")); err == nil {
+				return candidate
+			}
+		}
+	}
+	return ""
 }
 
 // BSIDataPath returns the path to BSI feed seed data (empty = skip seeding).
@@ -830,6 +848,13 @@ func loadSeedData(t *testing.T, pgURL string) {
 func startAuthService(t *testing.T, pgURL string) *exec.Cmd {
 	t.Helper()
 	authRoot := AuthRoot()
+	if authRoot == "" {
+		// A checkout with no sibling auth-service cannot run this test, and saying
+		// so is more useful than failing on a missing directory. Set
+		// INTEGRATION_AUTH_ROOT to point at one.
+		t.Skip("auth-service is not checked out beside this repository; " +
+			"set INTEGRATION_AUTH_ROOT to run the full-stack integration tests")
+	}
 
 	tmpDir, err := os.MkdirTemp("", "auth-service-*")
 	if err != nil {
