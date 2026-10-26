@@ -67,7 +67,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:${{ matrix.pg }}-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -99,8 +99,18 @@ jobs:
         run: go test -v -count=1 -tags integration -run 'TestCRARepository' ./tests/integration/...
 
   test:
-    name: Test
+    name: Test (PostgreSQL ${{ matrix.pg }})
     runs-on: ubuntu-latest
+    # The README claims PostgreSQL 14+, and this job tested 16 only. A version
+    # claim nobody exercises is the same kind of statement as a test that cannot
+    # fail: it is true until somebody deploys and finds out. The migrations use
+    # JSONB, ON CONFLICT, array defaults and partial indexes, and the cheapest way
+    # to know whether those work on the floor of the supported range is to run
+    # them there.
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ["14", "15", "16"]
     # A database is required here, not only in the integration and bdd jobs.
     # internal/testutil/TestMigrationsApplyToEmptyDatabase applies every migration to a
     # live PostgreSQL and skips when TEST_DATABASE_URL is unset, so without this the
