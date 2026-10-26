@@ -327,17 +327,21 @@ func schemaPublishedAt(documentDate, retrievedAt, after time.Time) time.Time {
 func BuildDefaultRegistry(retrievedAt time.Time) (*Registry, *SchemaRegistry, error) {
 	r := NewRegistry()
 
+	// The Regulation is retained, so the statutory periods this product computes
+	// from can be checked against the words that set them. It was previously cited
+	// with a hash over a label, which made every assertion resting on it
+	// unverifiable.
 	craSource := Source{
 		Authority:       AuthorityLaw,
 		Document:        InstrumentCRA,
-		Version:         "consolidated-2026-09-11",
-		ArtifactDerived: ArtifactLabelDerived,
-		PublicationDate: time.Date(2026, 9, 11, 0, 0, 0, 0, time.UTC),
-		RetrievedAt:     retrievedAt,
+		Version:         craRegulationVersion,
+		ArtifactDerived: ArtifactRetained,
+		PublicationDate: craRegulationPublished,
 		EffectiveFrom:   time.Date(2026, 9, 11, 0, 0, 0, 0, time.UTC),
-		SourceHash:      ComputeSourceHash([]byte(InstrumentCRA + "|consolidated-2026-09-11")),
-		SourceURL:       "https://eur-lex.europa.eu/eli/reg/2024/2847/oj",
+		SourceURL:       craRegulationCanonicalURL,
 	}
+	craSource.AttachArtifact(CRARegulationArtifact())
+	craSource.SourceURL = craRegulationCanonicalURL
 	commissionGuidance := Source{
 		Authority:       AuthorityCommissionGuidance,
 		Document:        "Commission Guidance on CRA Article 14 reporting",
