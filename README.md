@@ -139,9 +139,21 @@ below, or one database per tenant.
 **Schema per organisation.** Each organisation gets its own PostgreSQL schema and
 its own connection pool, with the schema selected by `search_path` in that pool's
 DSN rather than by `SET search_path` on a shared connection — so concurrent
-requests cannot race each other's search path. Provisioning, migration and
-teardown of those schemas are covered by `pkg/repository/instance_backend_test.go`
-and need a live database to run.
+requests cannot race each other's search path.
+
+Each schema records the migrations applied to it in its own `schema_migrations`
+table, so an existing organisation is **upgraded** to a new release rather than
+replayed from the first migration. This matters more than it sounds: without it,
+the schema a tenant was provisioned with was the schema it kept for ever, and a
+release that adds a column would leave every existing tenant behind — surfacing as
+an error on the first request that touched the new column. A failed upgrade leaves
+the schema in place (the recorded versions make a retry resume where it stopped);
+only a failed *first* provisioning is rolled back, because there is nothing to
+preserve.
+
+Provisioning, upgrade, failure handling and teardown are covered by
+`pkg/repository/instance_backend_test.go`, `tenant_upgrade_integration_test.go` and
+`tenant_provision_failure_integration_test.go`, all of which need a live database.
 
 ## Commercial Edition
 

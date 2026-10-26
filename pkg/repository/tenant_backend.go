@@ -86,6 +86,16 @@ func (b *SchemaPerOrgBackend) getOrCreateOrgDB(ctx context.Context, orgID uuid.U
 	schemaName := fmt.Sprintf("compliance_%s", orgID.String())
 	quotedSchema := pq.QuoteIdentifier(schemaName)
 
+	// Whether this call is creating the organisation's schema or upgrading one
+	// that already exists. The difference decides what happens on failure: a
+	// half-built NEW schema is dropped and retried, while a failed UPGRADE must
+	// leave the existing data alone.
+	var alreadyExists bool
+	if err := b.db.Raw(`SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = ?)`,
+		schemaName).Scan(&alreadyExists).Error; err != nil {
+		return nil, fmt.Errorf("look up schema %s: %w", schemaName, err)
+	}
+
 	// Create the schema if it doesn't exist, using the shared admin connection.
 	if err := b.db.Exec(fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", quotedSchema)).Error; err != nil {
 		return nil, fmt.Errorf("create schema: %w", err)
@@ -117,30 +127,68 @@ func (b *SchemaPerOrgBackend) getOrCreateOrgDB(ctx context.Context, orgID uuid.U
 	sqlDB.SetMaxIdleConns(3)
 	sqlDB.SetConnMaxLifetime(5 * time.Minute) //nolint:gomnd
 
-	// Run migrations on the new schema.
+	// Apply pending migrations, tracking versions inside the organisation's own
+	// schema.
+	//
+	// Without the version table every provisioning call replayed the entire
+	// migration sequence, which only ever worked because a new schema starts
+	// empty. An organisation whose schema already exists — the normal case after
+	// the first release that adds a migration — was either re-run from the start
+	// (failing on the first CREATE TABLE that now exists) or, in practice, never
+	// upgraded at all, so the schema a tenant was provisioned with was the schema
+	// it kept forever.
 	if b.migrationDir != "" {
 		migrations, mErr := b.loadMigrations(schemaName)
 		if mErr != nil {
+			_ = sqlDB.Close()
+			if !alreadyExists {
+				b.cleanupSchema(schemaName)
+			}
 			return nil, fmt.Errorf("load migrations for schema %s: %w", schemaName, mErr)
 		}
+
+		if err := ensureMigrationState(orgDB); err != nil {
+			_ = sqlDB.Close()
+			if !alreadyExists {
+				b.cleanupSchema(schemaName)
+			}
+			return nil, fmt.Errorf("prepare migration state in schema %s: %w", schemaName, err)
+		}
+
+		applied, aErr := appliedVersions(orgDB)
+		if aErr != nil {
+			_ = sqlDB.Close()
+			if !alreadyExists {
+				b.cleanupSchema(schemaName)
+			}
+			return nil, fmt.Errorf("read applied migrations in schema %s: %w", schemaName, aErr)
+		}
+
 		for _, m := range migrations {
+			if applied[m.version] {
+				continue
+			}
 			b.logger.Info("applying migration to org schema",
 				zap.String("org_id", orgID.String()),
 				zap.String("file", filepath.Base(m.path)),
+				zap.Bool("upgrading_existing", alreadyExists),
 			)
-			if err := orgDB.Exec(m.sql).Error; err != nil {
+			if err := applyMigration(orgDB, m); err != nil {
 				b.logger.Error("migration failed on org schema",
 					zap.String("org_id", orgID.String()),
 					zap.String("file", filepath.Base(m.path)),
+					zap.Bool("upgrading_existing", alreadyExists),
 					zap.Error(err),
 				)
-				// Drop the half-built schema and its pool. Returning here used to
-				// leave a partially migrated schema behind: the next provisioning
-				// attempt would CREATE SCHEMA IF NOT EXISTS, find it, and re-run
-				// every migration from the start against objects that already
-				// exist — so a transient failure became a permanently broken org
-				// that no retry could fix.
 				_ = sqlDB.Close()
+				if alreadyExists {
+					// Do NOT drop an organisation's existing schema because an
+					// upgrade failed: the applied versions are recorded, so a retry
+					// resumes from the migration that failed, and destroying the
+					// tenant's data to "clean up" would be the worst possible
+					// recovery.
+					return nil, fmt.Errorf("apply migration %s: %w", filepath.Base(m.path), err)
+				}
 				b.cleanupSchema(schemaName)
 				return nil, fmt.Errorf("apply migration %s: %w", filepath.Base(m.path), err)
 			}
@@ -224,6 +272,42 @@ func (b *SchemaPerOrgBackend) loadMigrations(schemaName string) ([]migration, er
 
 	sort.Slice(migrations, func(i, j int) bool { return migrations[i].version < migrations[j].version })
 	return migrations, nil
+}
+
+// ensureMigrationState creates the per-schema version table if it is missing.
+func ensureMigrationState(db *gorm.DB) error {
+	return db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		version BIGINT PRIMARY KEY,
+		applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`).Error
+}
+
+// appliedVersions returns the migration versions already applied in this schema.
+func appliedVersions(db *gorm.DB) (map[int64]bool, error) {
+	var rows []struct{ Version int64 }
+	if err := db.Raw(`SELECT version FROM schema_migrations`).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[int64]bool, len(rows))
+	for _, r := range rows {
+		out[r.Version] = true
+	}
+	return out, nil
+}
+
+// applyMigration runs one migration and records its version.
+//
+// The version is written only after the statements succeed, so an interrupted
+// migration is retried rather than skipped. Both steps share a transaction where
+// PostgreSQL allows it; DDL is transactional there, which is the case that matters.
+func applyMigration(db *gorm.DB, m migration) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(m.sql).Error; err != nil {
+			return err
+		}
+		return tx.Exec(`INSERT INTO schema_migrations (version) VALUES (?) ON CONFLICT (version) DO NOTHING`,
+			m.version).Error
+	})
 }
 
 func (b *SchemaPerOrgBackend) cleanupSchema(schemaName string) {
