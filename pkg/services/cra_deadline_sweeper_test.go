@@ -65,6 +65,7 @@ func craSweepDB(t *testing.T) *gorm.DB {
 			id text PRIMARY KEY, org_id text NOT NULL, cve text DEFAULT '', euvd_id text DEFAULT '',
 			event_type text, state text NOT NULL DEFAULT 'DETECTED',
 			title text DEFAULT '', description text DEFAULT '',
+			manufacturer_name text DEFAULT '', product_version text DEFAULT '', member_states blob DEFAULT '{}',
 			product_id text DEFAULT '', product_name text DEFAULT '', sbom_id text,
 			component_name text DEFAULT '', component_version text DEFAULT '', component_purl text DEFAULT '',
 			awareness_at datetime, awareness_source text, awareness_evidence text DEFAULT '',

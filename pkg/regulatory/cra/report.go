@@ -60,6 +60,12 @@ type Report struct {
 	ComponentVersion string `json:"component_version,omitempty"`
 	ComponentPURL    string `json:"component_purl,omitempty"`
 
+	// FilingFacts are the manufacturer, affected version and Member States of
+	// availability. They are properties of the product and the manufacturer
+	// rather than of the notification, so they live on the report and are derived
+	// into every stage's package instead of being re-typed per filing.
+	FilingFacts
+
 	// EUVDID is the ENISA EUVD identifier, when one is assigned. Distinct
 	// from the CVE: ENISA's own record is what ENISA's SRP form references.
 	EUVDID string `json:"euvd_id,omitempty"`

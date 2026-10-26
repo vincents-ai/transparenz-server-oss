@@ -89,6 +89,8 @@ jobs:
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE SCHEMA compliance;" \
                                      -c "CREATE TABLE compliance.organizations (id UUID PRIMARY KEY DEFAULT gen_random_uuid());"
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/000045_cra_reports.up.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/000050_cra_srp_packages.up.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/000051_cra_filing_facts.up.sql
       - name: CRA repository against PostgreSQL
         run: go test -v -count=1 -tags integration -run 'TestCRARepository' ./tests/integration/...
 

@@ -42,6 +42,13 @@ type CRAReport struct {
 
 	// The product and component the obligation attaches to. The duty is owed
 	// in respect of the product, not the upstream library.
+	// Filing facts. These are properties of the product and the manufacturer, not
+	// of the notification, so they are recorded once on the report and derived
+	// into every stage's package rather than re-typed per filing.
+	ManufacturerName string         `gorm:"not null;default:''" json:"manufacturer_name,omitempty"`
+	ProductVersion   string         `gorm:"not null;default:''" json:"product_version,omitempty"`
+	MemberStates     pq.StringArray `gorm:"type:text[];not null;default:'{}'" json:"member_states,omitempty"`
+
 	ProductID        string     `json:"product_id,omitempty"`
 	ProductName      string     `json:"product_name,omitempty"`
 	SbomID           *uuid.UUID `json:"sbom_id,omitempty"`

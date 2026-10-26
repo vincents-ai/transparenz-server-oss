@@ -330,6 +330,58 @@ func (r *CRARepository) RecordSubmission(ctx context.Context, report cra.Report,
 	return updated, nil
 }
 
+// SetFilingFacts records the manufacturer, affected product version and Member
+// States of availability on the report.
+//
+// It is an update rather than an append because these facts legitimately change —
+// a product reaches another market, a version range is corrected — and a
+// package is built from whatever the report holds at the time. The change itself
+// is appended to the decision log, with its actor and reason, so the fact that it
+// changed is never the thing that goes missing.
+func (r *CRARepository) SetFilingFacts(ctx context.Context, orgID, reportID uuid.UUID, facts cra.FilingFacts, actor string, now time.Time) error {
+	facts = facts.Normalised()
+	if err := facts.Validate(); err != nil {
+		return err
+	}
+	if actor == "" {
+		return errors.New("cra: filing facts must be attributable to an actor")
+	}
+
+	var current models.CRAReport
+	if err := r.db.WithContext(ctx).
+		Select("state").
+		Where("id = ? AND org_id = ?", reportID, orgID).
+		First(&current).Error; err != nil {
+		return err
+	}
+
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.CRAReport{}).
+			Where("id = ? AND org_id = ?", reportID, orgID).
+			Updates(map[string]any{
+				"manufacturer_name": facts.ManufacturerName,
+				"product_version":   facts.ProductVersion,
+				"member_states":     pq.StringArray(facts.MemberStates),
+				"updated_at":        now,
+			}).Error; err != nil {
+			return err
+		}
+		// from_state == to_state: this is not a transition. Recorded in the same
+		// append-only log because "the Member State list changed after the early
+		// warning was filed" is exactly the kind of question asked later.
+		return tx.Create(&models.CRAReportEvent{
+			OrgID:      orgID,
+			ReportID:   reportID,
+			FromState:  current.State,
+			ToState:    current.State,
+			Actor:      actor,
+			Reason:     "Filing facts recorded: manufacturer, product version and Member States of availability.",
+			Evidence:   nonNilArray(pq.StringArray{}),
+			OccurredAt: now,
+		}).Error
+	})
+}
+
 // SetPEC records a Particularly Exceptional Circumstances claim.
 //
 // The validation runs before the write, so a claim that is unavailable for the
@@ -516,6 +568,11 @@ func ToDomain(row *models.CRAReport) (cra.Report, error) {
 		DuplicateOf:           row.DuplicateOf,
 		CreatedAt:             row.CreatedAt,
 		UpdatedAt:             row.UpdatedAt,
+		FilingFacts: cra.FilingFacts{
+			ManufacturerName: row.ManufacturerName,
+			ProductVersion:   row.ProductVersion,
+			MemberStates:     []string(row.MemberStates),
+		},
 	}
 	if row.EventType != nil && *row.EventType != "" {
 		r.EventType = cra.EventType(*row.EventType)
@@ -613,6 +670,13 @@ func reportToRow(r cra.Report) (*models.CRAReport, error) {
 		CreatedAt:             r.CreatedAt,
 		UpdatedAt:             r.UpdatedAt,
 		MitigationAvailableAt: r.MitigationAvailableAt,
+		// Filing facts. member_states is NOT NULL in the migration, and a nil
+		// pq.StringArray marshals to SQL NULL — so an unset slice has to be
+		// written as the empty array rather than left nil, or the insert fails
+		// against PostgreSQL.
+		ManufacturerName: r.ManufacturerName,
+		ProductVersion:   r.ProductVersion,
+		MemberStates:     nonNilArray(pq.StringArray(r.MemberStates)),
 	}
 	if r.EventType.Valid() {
 		et := string(r.EventType)
