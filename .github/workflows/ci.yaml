@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
       - uses: golangci/golangci-lint-action@v7
         with:
           version: v2.0
@@ -39,7 +39,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
       - name: Download dependencies
         run: go mod download
       - name: ENISA SRP schema and field conformance
@@ -81,7 +81,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
       - name: Download dependencies
         run: go mod download
       - name: Apply the CRA reporting migration
@@ -124,7 +124,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
       - name: Download dependencies
         run: go mod download
       # -p 1 is required here, not a preference: internal/testutil's migration test
@@ -166,7 +166,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
       - name: Download dependencies
         run: go mod download
       - name: Run migrations
@@ -201,7 +201,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
       - name: Download dependencies
         run: go mod download
       - name: Run migrations
@@ -222,7 +222,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
       - name: Build binary
         run: go build -ldflags "-s -w" -o bin/transparenz-server ./cmd/server
 
