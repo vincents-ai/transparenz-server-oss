@@ -82,6 +82,12 @@ func setupAuditTestRouter(t *testing.T) (*gin.Engine, uuid.UUID) {
 	return router, org.ID
 }
 
+// These tests cover the handler's parameter validation ONLY: no organisation in
+// context, a missing start, a missing end. Verification itself — that a tampered
+// or truncated chain is reported as such — is covered by
+// pkg/services/audit_chain_verify_test.go, because that is where the chain logic
+// lives and where a real key can be used to sign and then break it.
+
 func TestVerifyAuditChain_NoOrgContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler := NewAuditHandler(nil)

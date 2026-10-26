@@ -69,7 +69,9 @@ nix-shell -p k6 -p postgresql --run './run-e2e.sh'
 - **SLA Tracking** — Internal remediation windows driven by severity, plus Article 14
   reporting obligations anchored on awareness; each row records which it is
 - **Coordinated Disclosure** — Upstream notification workflow with 90-day response window
-- **Audit Trail** — Compliance event tracking with verification
+- **Audit Trail** — Compliance event tracking with an Ed25519-signed hash chain
+  and `GET /api/audit/verify`. See [Audit evidence](#audit-evidence) for exactly
+  what it proves
 - **Real-time Alerts** — SSE-based vulnerability and SLA alerts
 - **Multi-Tenant Isolation** — application-level scoping in the repository layer, and
   schema-per-organisation as an alternative backend. See
@@ -77,6 +79,36 @@ nix-shell -p k6 -p postgresql --run './run-e2e.sh'
 - **Submission Records** — List and download submission records (manual filings to the
   ENISA SRP, and pushes to a national CSIRT endpoint)
 - **Metrics** — Prometheus `/metrics` endpoint with basic auth
+
+## Audit evidence
+
+Each compliance event carries `event_hash` (SHA-256 of its payload) and
+`previous_event_hash`, and is signed with Ed25519 over `previous_event_hash ||
+payload`. `GET /api/audit/verify?start=&end=` recomputes both and reports
+per-event results.
+
+What it detects, and each is covered by a test that tampers with a real chain
+(`pkg/services/audit_chain_verify_test.go`):
+
+- **an altered payload** — the signature no longer matches what the event says;
+- **a removed event in the middle** — the next event's `previous_event_hash`
+  points at something that is no longer there;
+- **an unsigned event** — even when the links themselves are intact.
+
+What it does **not** detect, and should not be described as detecting:
+
+- **removal of the most recent events.** With no later event to disagree with, a
+  truncated chain still verifies. Detecting that needs an anchor outside the
+  database — a published head hash, a signed export manifest, or a periodic
+  timestamp — which this edition does not have yet.
+- **a full rewrite by someone who also holds the private key.** The signing key is
+  not stored in the database (the server key is read from a file, and per-org
+  pairs are generated and handed to the caller), so database access alone is not
+  enough to re-forge the chain — but key custody is the real boundary, not the
+  database.
+
+Verification is also windowed by `start` and `end`, so the first event in a window
+has no predecessor to check against. Ask for the whole period you need to rely on.
 
 ## Tenant isolation
 
