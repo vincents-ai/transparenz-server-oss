@@ -18,6 +18,7 @@ package integration
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -66,7 +67,36 @@ func craTestDB(t *testing.T) *gorm.DB {
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	require.NoError(t, err)
+
+	// The database is assumed to carry the CRA reporting schema, but later
+	// migrations add columns and tables the models now write to. Applying the
+	// pending ones here keeps the suite honest against a database that was
+	// migrated at some earlier point — which is every real deployment.
+	craTestEnsureSchema(t, db)
 	return db
+}
+
+// craTestEnsureSchema applies the migrations this suite depends on, if the
+// database has not had them. Probing a column or table is what makes it
+// idempotent; Go migration tracking is not available from a test.
+func craTestEnsureSchema(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	for _, col := range []struct{ file, probe string }{
+		{"000051_cra_filing_facts.up.sql", "member_states"},
+		{"000052_cra_report_narratives.up.sql", "severity_description"},
+	} {
+		if db.Migrator().HasColumn("compliance.cra_reports", col.probe) {
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join("..", "..", "migrations", col.file))
+		require.NoError(t, err, "%s must be readable", col.file)
+		require.NoError(t, db.Exec(string(body)).Error, "applying %s", col.file)
+	}
+	if !db.Migrator().HasTable("compliance.cra_srp_packages") {
+		body, err := os.ReadFile(filepath.Join("..", "..", "migrations", "000050_cra_srp_packages.up.sql"))
+		require.NoError(t, err)
+		require.NoError(t, db.Exec(string(body)).Error)
+	}
 }
 
 func craTestOrg(t *testing.T, db *gorm.DB) uuid.UUID {

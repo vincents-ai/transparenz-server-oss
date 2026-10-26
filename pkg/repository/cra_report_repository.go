@@ -362,7 +362,19 @@ func (r *CRARepository) SetFilingFacts(ctx context.Context, orgID, reportID uuid
 				"manufacturer_name": facts.ManufacturerName,
 				"product_version":   facts.ProductVersion,
 				"member_states":     pq.StringArray(facts.MemberStates),
-				"updated_at":        now,
+
+				"severity_description": facts.SeverityDescription,
+				"impact_description":   facts.ImpactDescription,
+				"measures_taken":       facts.MeasuresTaken,
+				"measures_for_users":   facts.MeasuresForUsers,
+				"user_action":          facts.UserAction,
+				"general_information":  facts.GeneralInformation,
+				"initial_assessment":   facts.InitialAssessment,
+				"update_details":       facts.UpdateDetails,
+				"root_cause":           facts.RootCause,
+				"incident_suspected":   facts.IncidentSuspected,
+
+				"updated_at": now,
 			}).Error; err != nil {
 			return err
 		}
@@ -569,9 +581,19 @@ func ToDomain(row *models.CRAReport) (cra.Report, error) {
 		CreatedAt:             row.CreatedAt,
 		UpdatedAt:             row.UpdatedAt,
 		FilingFacts: cra.FilingFacts{
-			ManufacturerName: row.ManufacturerName,
-			ProductVersion:   row.ProductVersion,
-			MemberStates:     []string(row.MemberStates),
+			ManufacturerName:    row.ManufacturerName,
+			ProductVersion:      row.ProductVersion,
+			MemberStates:        []string(row.MemberStates),
+			SeverityDescription: row.SeverityDescription,
+			ImpactDescription:   row.ImpactDescription,
+			MeasuresTaken:       row.MeasuresTaken,
+			MeasuresForUsers:    row.MeasuresForUsers,
+			UserAction:          row.UserAction,
+			GeneralInformation:  row.GeneralInformation,
+			InitialAssessment:   row.InitialAssessment,
+			UpdateDetails:       row.UpdateDetails,
+			RootCause:           row.RootCause,
+			IncidentSuspected:   row.IncidentSuspected,
 		},
 	}
 	if row.EventType != nil && *row.EventType != "" {
@@ -677,6 +699,17 @@ func reportToRow(r cra.Report) (*models.CRAReport, error) {
 		ManufacturerName: r.ManufacturerName,
 		ProductVersion:   r.ProductVersion,
 		MemberStates:     nonNilArray(pq.StringArray(r.MemberStates)),
+
+		SeverityDescription: r.SeverityDescription,
+		ImpactDescription:   r.ImpactDescription,
+		MeasuresTaken:       r.MeasuresTaken,
+		MeasuresForUsers:    r.MeasuresForUsers,
+		UserAction:          r.UserAction,
+		GeneralInformation:  r.GeneralInformation,
+		InitialAssessment:   r.InitialAssessment,
+		UpdateDetails:       r.UpdateDetails,
+		RootCause:           r.RootCause,
+		IncidentSuspected:   r.IncidentSuspected,
 	}
 	if r.EventType.Valid() {
 		et := string(r.EventType)

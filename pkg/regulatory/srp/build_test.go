@@ -310,3 +310,61 @@ func TestBuildDoesNotMutateTheCallersFields(t *testing.T) {
 	_, present := in.Fields[regulatory.FieldV16AEVAwareness]
 	assert.False(t, present, "Build derived the awareness field into a copy, not into the caller's map")
 }
+
+// The awareness anchor is filed at the stages that ask for it and nowhere else.
+// v1.6 marks v26/i37 N/A from the 72-hour notification onwards, so carrying it
+// forward would make every later package fail validation for a field the filer
+// never touched — the failure mode the per-stage matrix exists to prevent.
+func TestAwarenessIsFiledOnlyWhereTheGlossaryAsksForIt(t *testing.T) {
+	schema := v16(t)
+	awareness := awarenessAt()
+
+	si := map[string]string{
+		regulatory.FieldV16IncidentNature:     "Malicious code executed through the update service.",
+		regulatory.FieldV16IncidentAssessment: "Limited to three units.",
+	}
+	facts := ReportFacts{
+		SeverityDescription: "Low.",
+		ImpactDescription:   "Minimal.",
+		MeasuresTaken:       "Containment applied.",
+		MeasuresForUsers:    "Verify the signature of update packages.",
+		RootCause:           "Supply-chain compromise.",
+		GeneralInformation:  si[regulatory.FieldV16IncidentNature],
+		InitialAssessment:   si[regulatory.FieldV16IncidentAssessment],
+	}
+
+	// Early warning: the anchor is required and filed.
+	ew, err := Build(schema, BuildInput{
+		ReportID: uuid.New(), OrgID: uuid.New(),
+		EventClass: regulatory.EventClassSI, Stage: regulatory.StageEarlyWarning,
+		CoordinatorID: "DE-CSIRT",
+		Facts: &ReportFacts{
+			Title:            "Incident affecting Example Gateway",
+			Summary:          "Summary.",
+			ManufacturerName: "Example Manufacturing GmbH",
+			MemberStates:     "DE",
+			ProductName:      "Example Gateway",
+			ProductVersion:   "4.2.1",
+			// i31 is required at a severe incident's early warning and comes from the
+			// report like every other case fact.
+			IncidentSuspected: "Yes. Evidence indicates intentional modification.",
+		},
+		AwarenessAt: &awareness,
+		Now:         buildNow,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, regulatory.SRPTimestamp(awareness), ew.Fields[regulatory.FieldV16IncidentAwareness])
+
+	// Final report: the anchor does not apply and must not be carried in.
+	fr, err := Build(schema, BuildInput{
+		ReportID: uuid.New(), OrgID: uuid.New(),
+		EventClass: regulatory.EventClassSI, Stage: regulatory.StageFinalReport,
+		CoordinatorID: "DE-CSIRT",
+		Facts:         &facts,
+		AwarenessAt:   &awareness,
+		Now:           buildNow,
+	})
+	require.NoError(t, err, "a later stage must not fail on a field it does not file")
+	_, present := fr.Fields[regulatory.FieldV16IncidentAwareness]
+	assert.False(t, present, "the anchor is not applicable at the final report")
+}

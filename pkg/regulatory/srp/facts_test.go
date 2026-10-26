@@ -172,3 +172,84 @@ func facts() *ReportFacts {
 	f := factsFixture()
 	return &f
 }
+
+// The written statements are carried from the report into the position the event
+// class uses, so one text serves both classes and cannot differ between stages.
+func TestWrittenStatementsAreDerivedPerEventClass(t *testing.T) {
+	schema := v16(t)
+
+	f := factsFixture()
+	f.SeverityDescription = "Severity: High. Authentication validation missing in endpoint X."
+	f.ImpactDescription = "Remote unauthenticated compromise of configuration data."
+	f.MeasuresTaken = "Update 4.2.2 released; old releases withdrawn from the portal."
+	f.MeasuresForUsers = "Install 4.2.2; restrict management access until then."
+	f.GeneralInformation = "Authentication bypass in the management interface."
+	f.InitialAssessment = "Confirmed impact is limited to three units."
+	f.UpdateDetails = "Security update 4.2.2 corrects the missing authorisation check."
+	f.RootCause = "Missing authorisation check introduced in 3.1.0."
+
+	// An AEV final report: the AEV positions, and none of the SI ones.
+	aev := deriveFields(schema, regulatory.StageFinalReport, regulatory.EventClassAEV, f)
+	assert.Equal(t, f.SeverityDescription, aev[regulatory.FieldV16SeverityDesc])
+	assert.Equal(t, f.ImpactDescription, aev[regulatory.FieldV16ImpactDesc])
+	assert.Equal(t, f.UpdateDetails, aev[regulatory.FieldV16UpdateDetails])
+	assert.Equal(t, f.MeasuresTaken, aev[regulatory.FieldV16MeasuresTaken])
+	assert.Equal(t, f.MeasuresForUsers, aev[regulatory.FieldV16MeasuresForUsers])
+	_, hasSISeverity := aev[regulatory.FieldV16IncidentSeverity]
+	assert.False(t, hasSISeverity, "an AEV must not carry the severe-incident severity position")
+
+	// A severe incident final report: the SI positions, from the same columns.
+	si := deriveFields(schema, regulatory.StageFinalReport, regulatory.EventClassSI, f)
+	assert.Equal(t, f.SeverityDescription, si[regulatory.FieldV16IncidentSeverity])
+	assert.Equal(t, f.ImpactDescription, si[regulatory.FieldV16IncidentImpact])
+	assert.Equal(t, f.MeasuresTaken, si[regulatory.FieldV16IncidentMeasures],
+		"i33 is the severe-incident statement of the same fact")
+	_, hasAEVSeverity := si[regulatory.FieldV16SeverityDesc]
+	assert.False(t, hasAEVSeverity)
+
+	// 17 and 14 apply to both classes; 14 only at the early warning.
+	siEW := deriveFields(schema, regulatory.StageEarlyWarning, regulatory.EventClassSI, f)
+	assert.Equal(t, f.MeasuresForUsers, siEW[regulatory.FieldV16MeasuresForUsers])
+	assert.Equal(t, f.UserAction, siEW[regulatory.FieldV16UserAction])
+	_, siFRHasUserAction := si[regulatory.FieldV16UserAction]
+	assert.False(t, siFRHasUserAction, "field 14 applies at the early warning only")
+}
+
+// With the statements recorded on the report, the 72-hour and final-report stages
+// need no supplied field at all beyond the PEC decision, which is a human choice
+// the schema treats as optional.
+func TestLaterStagesBuildEntirelyFromTheReport(t *testing.T) {
+	schema := v16(t)
+
+	f := factsFixture()
+	f.SeverityDescription = "Severity: High."
+	f.ImpactDescription = "Configuration data compromised."
+	f.MeasuresTaken = "Update released."
+	f.MeasuresForUsers = "Install the update."
+	f.GeneralInformation = "Authentication bypass in the management interface."
+	f.InitialAssessment = "Limited to three units."
+	f.UpdateDetails = "Corrects the missing authorisation check."
+	f.RootCause = "Missing authorisation check."
+
+	for _, tc := range []struct {
+		name  string
+		stage regulatory.Stage
+		class regulatory.EventClass
+	}{
+		{"AEV / 72h", regulatory.StageNotification72h, regulatory.EventClassAEV},
+		{"AEV / final report", regulatory.StageFinalReport, regulatory.EventClassAEV},
+		{"SI / 72h", regulatory.StageNotification72h, regulatory.EventClassSI},
+		{"SI / final report", regulatory.StageFinalReport, regulatory.EventClassSI},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Build(schema, BuildInput{
+				ReportID: uuid.New(), OrgID: uuid.New(),
+				EventClass: tc.class, Stage: tc.stage,
+				CoordinatorID: "DE-CSIRT",
+				Facts:         &f,
+				Now:           buildNow,
+			})
+			require.NoError(t, err, "the report holds everything this stage requires")
+		})
+	}
+}

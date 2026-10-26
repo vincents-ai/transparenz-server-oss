@@ -49,6 +49,19 @@ type CRAReport struct {
 	ProductVersion   string         `gorm:"not null;default:''" json:"product_version,omitempty"`
 	MemberStates     pq.StringArray `gorm:"type:text[];not null;default:'{}'" json:"member_states,omitempty"`
 
+	// The written statements the SRP asks for, held once per case and derived into
+	// whichever glossary position the event class uses.
+	SeverityDescription string `gorm:"not null;default:''" json:"severity_description,omitempty"`
+	ImpactDescription   string `gorm:"not null;default:''" json:"impact_description,omitempty"`
+	MeasuresTaken       string `gorm:"not null;default:''" json:"measures_taken,omitempty"`
+	MeasuresForUsers    string `gorm:"not null;default:''" json:"measures_for_users,omitempty"`
+	UserAction          string `gorm:"not null;default:''" json:"user_action,omitempty"`
+	GeneralInformation  string `gorm:"not null;default:''" json:"general_information,omitempty"`
+	InitialAssessment   string `gorm:"not null;default:''" json:"initial_assessment,omitempty"`
+	UpdateDetails       string `gorm:"not null;default:''" json:"update_details,omitempty"`
+	RootCause           string `gorm:"column:root_cause;not null;default:''" json:"root_cause,omitempty"`
+	IncidentSuspected   string `gorm:"column:incident_suspected;not null;default:''" json:"incident_suspected,omitempty"`
+
 	ProductID        string     `json:"product_id,omitempty"`
 	ProductName      string     `json:"product_name,omitempty"`
 	SbomID           *uuid.UUID `json:"sbom_id,omitempty"`

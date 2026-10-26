@@ -26,10 +26,6 @@ import (
 // What is deliberately NOT here, because the report does not hold it or does not
 // hold something equivalent:
 //
-//   - Severity and impact descriptions (v24, v25). The report records evidence
-//     of exploitation and its scope, which is a different statement from an
-//     assessed severity. Deriving one from the other would put a judgement in
-//     the filing that nobody made.
 //   - PEC grounds (v28-v30). cra.PECGrounds are the product's own vocabulary
 //     (active remediation, operational security, law enforcement, personal
 //     data). The SRP's three options are the Article 16(2) circumstances —
@@ -39,9 +35,12 @@ import (
 //   - When the vulnerability or incident OCCURRED (v26a, i38). The report holds
 //     when exploitation was observed, which is when we saw it, not when it
 //     started.
-//   - The corrective measures taken and the guidance for users (16, 17) and the
-//     action users can take (14). These are written statements that no column
-//     records.
+//
+// The written statements (v24/v25/i34/i35, 16/17/i33, 14, v21/i32, i39, v23) ARE
+// carried, from columns on the report. They are prose a human writes and nothing
+// generates them, but writing them once per case rather than once per stage is
+// what stops a final report describing a severity the 72-hour notification
+// contradicted.
 type ReportFacts struct {
 	// Title and Summary are the report's own title and description.
 	Title   string
@@ -82,6 +81,19 @@ type ReportFacts struct {
 	// fact field v22 asks for, so it is filed from the same value the deadline
 	// was computed from.
 	MitigationAvailableAt *time.Time
+
+	// The written statements. Each maps to one glossary position per event class,
+	// so the same text serves an AEV (v24) and a severe incident (i34).
+	SeverityDescription string
+	ImpactDescription   string
+	MeasuresTaken       string
+	MeasuresForUsers    string
+	UserAction          string
+	GeneralInformation  string
+	InitialAssessment   string
+	UpdateDetails       string
+	RootCause           string
+	IncidentSuspected   string
 }
 
 // ErrDerivedFieldConflict is returned when a caller supplies a value for a field
@@ -163,6 +175,29 @@ func deriveFields(schema *regulatory.ReportingSchema, stage regulatory.Stage, cl
 	// it is left to the filer, who can see whether 17 is complete. At the final
 	// report it is required outright, which is where the report's own mitigation
 	// instant is filed.
+	// The written statements, into the position the event class uses.
+	add(regulatory.FieldV16MeasuresTaken, facts.MeasuresTaken)
+	add(regulatory.FieldV16MeasuresForUsers, facts.MeasuresForUsers)
+	add(regulatory.FieldV16UserAction, facts.UserAction)
+
+	switch class {
+	case regulatory.EventClassAEV:
+		add(regulatory.FieldV16SeverityDesc, facts.SeverityDescription)
+		add(regulatory.FieldV16ImpactDesc, facts.ImpactDescription)
+		add(regulatory.FieldV16GeneralInfo, facts.GeneralInformation)
+		add(regulatory.FieldV16UpdateDetails, facts.UpdateDetails)
+	case regulatory.EventClassSI:
+		add(regulatory.FieldV16IncidentSeverity, facts.SeverityDescription)
+		add(regulatory.FieldV16IncidentImpact, facts.ImpactDescription)
+		add(regulatory.FieldV16IncidentNature, facts.GeneralInformation)
+		add(regulatory.FieldV16IncidentAssessment, facts.InitialAssessment)
+		add(regulatory.FieldV16IncidentRootCause, facts.RootCause)
+		// i33 is the severe-incident statement of the measures taken.
+		add(regulatory.FieldV16IncidentMeasures, facts.MeasuresTaken)
+		// i31 is required at the severe-incident early warning.
+		add(regulatory.FieldV16IncidentSuspected, facts.IncidentSuspected)
+	}
+
 	if facts.MitigationAvailableAt != nil {
 		if f, ok := schema.Field(regulatory.FieldV16MeasureDate); ok &&
 			f.RequirementAt(stage, class) == regulatory.RequirementRequired {

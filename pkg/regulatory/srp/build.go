@@ -128,13 +128,21 @@ func Build(schema *regulatory.ReportingSchema, in BuildInput) (Package, error) {
 
 	awarenessField, hasMapping := regulatory.AwarenessFieldFor(in.EventClass)
 	if hasMapping {
-		_, defined := schema.Field(awarenessField)
+		f, defined := schema.Field(awarenessField)
+		applies := defined && f.RequirementAt(in.Stage, in.EventClass) != regulatory.RequirementNotApplicable
 		switch {
-		case in.AwarenessAt != nil && defined:
+		case in.AwarenessAt != nil && applies:
 			fields[awarenessField] = regulatory.SRPTimestamp(*in.AwarenessAt)
 		case in.AwarenessAt != nil && !defined:
 			return Package{}, fmt.Errorf("%w: %s is not defined in %s",
 				ErrSchemaCannotCarryAwareness, awarenessField, schema.ID)
+		case in.AwarenessAt != nil && !applies:
+			// The anchor is filed at the stage that asks for it. v1.6 marks it N/A
+			// from the 72-hour notification onwards, and supplying it there is an
+			// error the platform would raise — so it is dropped, not carried
+			// forward. Dropping it silently is safe here only because the same
+			// instant anchored the earlier stages that did file it, and this
+			// package records nothing about it either way.
 		}
 	}
 
