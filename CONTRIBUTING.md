@@ -52,6 +52,34 @@ refactor: extract scan worker interface
 chore: update dependencies
 ```
 
+### Every commit references a task
+
+A conventional-commit subject is not sufficient. Each commit must carry an engram
+task reference, conventionally as a trailer:
+
+```
+feat: derive package fields from the stored report
+
+Refs: [e8daa2e9-8bb2-44a8-8248-08a9b097920e]
+```
+
+Two measured facts about the tooling, because both surprise people:
+
+- `engram validate commit` checks that a *referenced* task exists in **this
+  repository's** engram workspace and has context and reasoning attached. It does
+  **not** require the message to reference anything — a message with no task UUID
+  passes. `transparenz-server-oss` and `transparenz-server` have separate
+  workspaces, so an OSS task UUID does not validate in the other repo.
+- The engram hook installed by `engram validate hook install` lands in
+  `.git/hooks`, which is per-clone: it does not survive a fresh checkout, and it
+  is not used at all in a repository that sets `core.hooksPath`. Because of that,
+  the task-reference check is enforced by hand in the local `commit-msg` hook
+  here, and by a version-controlled `.githooks/commit-msg` in
+  `transparenz-server`.
+
+If a commit is rejected for a missing reference, add the trailer. Do not use
+`--no-verify`: the reference is what makes the reasoning reviewable later.
+
 ## Pull Request Process
 
 1. Fork the repository
