@@ -213,6 +213,9 @@ func runServer() {
 
 		api.POST("/sboms/upload", sbomHandler.Upload)
 		api.GET("/sboms", sbomHandler.List)
+		// Whether each SBOM has been scanned since the feed last changed: a green
+		// compliance status cannot say that on its own.
+		api.GET("/sboms/freshness", sbomHandler.Freshness)
 		api.GET("/sboms/:id", sbomHandler.GetByID)
 		api.GET("/sboms/:id/download", sbomHandler.Download)
 		api.DELETE("/sboms/:id", sbomHandler.Delete)

@@ -73,6 +73,10 @@ nix-shell -p k6 -p postgresql --run './run-e2e.sh'
   and `GET /api/audit/verify`. See [Audit evidence](#audit-evidence) for exactly
   what it proves
 - **Real-time Alerts** — SSE-based vulnerability and SLA alerts
+- **Scan freshness** — `GET /api/sboms/freshness` reports, per SBOM, whether it has
+  been scanned since the vulnerability feed last changed. Scanning here is
+  operator-triggered, so a green compliance status does not imply the SBOM has been
+  checked against current data — this endpoint is what says whether it has
 - **Multi-Tenant Isolation** — application-level scoping in the repository layer, and
   schema-per-organisation as an alternative backend. See
   [Tenant isolation](#tenant-isolation) for what this does and does not guarantee

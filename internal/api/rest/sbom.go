@@ -244,6 +244,28 @@ func (h *SbomHandler) Upload(c *gin.Context) {
 	})
 }
 
+// Freshness reports, per SBOM, whether it has been scanned since the vulnerability
+// feed last changed.
+//
+// A compliance status cannot say this on its own: if the SBOM was never rescanned
+// after a feed update, the finding that would have created a deadline does not
+// exist, so nothing looks overdue. The answer belongs next to the status.
+func (h *SbomHandler) Freshness(c *gin.Context) {
+	orgUUID, ok := middleware.RequireOrgUUID(c)
+	if !ok {
+		return
+	}
+
+	ctx := middleware.ContextWithOrgID(c.Request.Context(), orgUUID)
+
+	freshness, err := h.sbomRepo.Freshness(ctx)
+	if err != nil {
+		api.InternalError(c, "failed to compute scan freshness")
+		return
+	}
+	c.JSON(http.StatusOK, freshness)
+}
+
 func (h *SbomHandler) List(c *gin.Context) {
 	orgUUID, ok := middleware.RequireOrgUUID(c)
 	if !ok {
