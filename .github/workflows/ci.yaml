@@ -127,8 +127,13 @@ jobs:
           go-version: "1.25"
       - name: Download dependencies
         run: go mod download
+      # -p 1 is required here, not a preference: internal/testutil's migration test
+      # drops and re-creates the compliance schema, so any package running
+      # concurrently against the same database fails with errors that look like
+      # product bugs ("column csirt_endpoint does not exist"). Verified by running
+      # the suite both ways against a live PostgreSQL.
       - name: Unit tests
-        run: go test -v -race -coverprofile=coverage.out ./pkg/... ./internal/...
+        run: go test -v -race -p 1 -coverprofile=coverage.out ./pkg/... ./internal/...
       - name: Check coverage
         run: |
           COVERAGE=$(go tool cover -func=coverage.out | tail -1 | awk '{print $3}' | sed 's/%//')

@@ -28,7 +28,37 @@ func NewOrganizationRepository(db *gorm.DB) *OrganizationRepository {
 }
 
 func (r *OrganizationRepository) Create(ctx context.Context, org *models.Organization) error {
-	return r.db.WithContext(ctx).Create(org).Error
+	return omittingUnsetEntityClass(r.db.WithContext(ctx), org).Create(org).Error
+}
+
+// omittingUnsetEntityClass keeps an unclassified organisation insertable.
+//
+// The column is nullable and CHECK-constrained to 'essential' or 'important'
+// (migration 000043), because "not yet classified" is a legitimate state: most
+// organisations are created before anyone decides their NIS2 status. The model
+// carries the field as a plain string, so GORM sends "" rather than NULL and the
+// CHECK rejects it — which made creating an organisation without an entity class
+// fail outright against a migrated database. Omitting the column lets the default
+// (NULL) apply, and the field still reads back as "".
+func omittingUnsetEntityClass(tx *gorm.DB, org *models.Organization) *gorm.DB {
+	if org == nil {
+		return tx
+	}
+	// Both NIS2 routing columns are nullable and format-constrained, so "" is not
+	// a legal value for either: the migration means "unknown" to be NULL. The
+	// model carries them as plain strings, so every field left unset has to be
+	// omitted rather than written as an empty string.
+	var unset []string
+	if org.NIS2EntityClass == "" {
+		unset = append(unset, "NIS2EntityClass")
+	}
+	if org.NIS2MemberState == "" {
+		unset = append(unset, "NIS2MemberState")
+	}
+	if len(unset) == 0 {
+		return tx
+	}
+	return tx.Omit(unset...)
 }
 
 func (r *OrganizationRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Organization, error) {
@@ -59,7 +89,7 @@ func (r *OrganizationRepository) Update(ctx context.Context, org *models.Organiz
 	if err := SelfScopeGuard(ctx, org.ID); err != nil {
 		return err
 	}
-	return r.db.WithContext(ctx).Save(org).Error
+	return omittingUnsetEntityClass(r.db.WithContext(ctx), org).Save(org).Error
 }
 
 func (r *OrganizationRepository) Delete(ctx context.Context, id uuid.UUID) error {
