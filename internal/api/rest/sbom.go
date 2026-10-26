@@ -442,8 +442,8 @@ func validateSBOMStructure(data []byte, format string) error {
 	}
 
 	// Additional field validation for JSON formats
-	switch {
-	case format == "spdx-json":
+	switch format {
+	case "spdx-json":
 		var doc map[string]interface{}
 		if err := json.Unmarshal(data, &doc); err != nil {
 			return err
@@ -451,7 +451,7 @@ func validateSBOMStructure(data []byte, format string) error {
 		if _, ok := doc["spdxVersion"]; !ok {
 			return &sbomValidationError{"invalid SPDX document: missing spdxVersion field"}
 		}
-	case format == "cyclonedx-json":
+	case "cyclonedx-json":
 		var doc map[string]interface{}
 		if err := json.Unmarshal(data, &doc); err != nil {
 			return err

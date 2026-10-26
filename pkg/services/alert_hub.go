@@ -19,8 +19,53 @@ type Alert struct {
 // Commercial uses this for gossip-based cross-node deduplication.
 type AlertFilter func(orgID string, alert *Alert) bool
 
+// subscriber owns one alert channel.
+//
+// The channel and the flag that says whether it is still open are guarded by the
+// same mutex, so a broadcast and an unsubscribe cannot touch the channel at the
+// same time. Without that, unsubscribe closed the channel while a broadcast was
+// sending on it: the send used to be wrapped in recover(), which swallowed the
+// panic but left the race, and `go test -race` reported it whenever a subscriber
+// left while an alert was in flight.
+type subscriber struct {
+	mu     sync.Mutex
+	ch     chan *Alert
+	closed bool
+}
+
+// send delivers an alert if the channel has room and is still open.
+func (s *subscriber) send(alert *Alert) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
+	// Non-blocking: a subscriber that cannot keep up loses the alert rather than
+	// stalling the broadcaster. The buffer is generous (see Subscribe), and
+	// dropping is preferable to back-pressuring an incident workflow.
+	select {
+	case s.ch <- alert:
+	default:
+	}
+}
+
+// close marks the channel closed and closes it exactly once.
+func (s *subscriber) close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
+	s.closed = true
+	// Close so receivers blocked on <-ch, and the standard "range over channel"
+	// consume loop, unblock and observe end-of-stream. Without this, unsubscribe
+	// only stopped NEW broadcasts from reaching this subscriber and left existing
+	// receivers blocked forever, which hung the suite.
+	close(s.ch)
+}
+
 type AlertHub struct {
-	clients map[string]map[chan *Alert]struct{}
+	clients map[string]map[*subscriber]struct{}
 	mu      sync.RWMutex
 	logger  *zap.Logger
 	filter  AlertFilter
@@ -28,7 +73,7 @@ type AlertHub struct {
 
 func NewAlertHub(logger *zap.Logger) *AlertHub {
 	return &AlertHub{
-		clients: make(map[string]map[chan *Alert]struct{}),
+		clients: make(map[string]map[*subscriber]struct{}),
 		logger:  logger,
 	}
 }
@@ -47,54 +92,37 @@ func (h *AlertHub) Broadcast(orgID string, alert *Alert) {
 
 	h.mu.RLock()
 	clients := h.clients[orgID]
-	// Snapshot the channels while holding the read lock to avoid
-	// racing with Subscribe/Unsubscribe which modify the map.
-	snapshot := make([]chan *Alert, 0, len(clients))
-	for ch := range clients {
-		snapshot = append(snapshot, ch)
+	// Snapshot the subscribers while holding the read lock to avoid racing with
+	// Subscribe/Unsubscribe which modify the map.
+	snapshot := make([]*subscriber, 0, len(clients))
+	for s := range clients {
+		snapshot = append(snapshot, s)
 	}
 	h.mu.RUnlock()
 
-	for _, clientChan := range snapshot {
-		func() {
-			defer func() {
-				//nolint:errcheck
-				recover()
-			}()
-			select {
-			case clientChan <- alert:
-			default:
-			}
-		}()
+	for _, s := range snapshot {
+		s.send(alert)
 	}
 }
 
 func (h *AlertHub) Subscribe(orgID string) (<-chan *Alert, func()) {
-	alertChan := make(chan *Alert, 100)
+	sub := &subscriber{ch: make(chan *Alert, 100)}
 
 	h.mu.Lock()
 	if h.clients[orgID] == nil {
-		h.clients[orgID] = make(map[chan *Alert]struct{})
+		h.clients[orgID] = make(map[*subscriber]struct{})
 	}
-	h.clients[orgID][alertChan] = struct{}{}
+	h.clients[orgID][sub] = struct{}{}
 	h.mu.Unlock()
 
 	unsubscribe := func() {
 		h.mu.Lock()
 		if h.clients[orgID] != nil {
-			delete(h.clients[orgID], alertChan)
+			delete(h.clients[orgID], sub)
 		}
 		h.mu.Unlock()
-		// Close the channel so receivers blocked on <-ch (and the standard
-		// "range over channel" consume loop) unblock and observe end-of-stream.
-		// Without this, unsubscribe only stopped NEW broadcasts from reaching
-		// this subscriber but left existing receivers blocked forever — which
-		// hung TestAlertHub_Unsubscribe and, by extension, the whole
-		// pkg/services test suite (600s timeout). Safe to close: each
-		// Subscribe call mints a fresh channel with a single owner, and
-		// Broadcast guards sends with recover() against send-on-closed races.
-		close(alertChan)
+		sub.close()
 	}
 
-	return alertChan, unsubscribe
+	return sub.ch, unsubscribe
 }

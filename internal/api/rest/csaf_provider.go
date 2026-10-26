@@ -378,7 +378,14 @@ func (h *CSAFFeedIngestionHandler) IngestFeed(c *gin.Context) {
 		api.BadRequest(c, fmt.Sprintf("failed to fetch CSAF feed: %v", err))
 		return
 	}
-	defer resp.Body.Close()
+	defer func() {
+		// A failed close on a response we have finished with cannot change the
+		// answer we have already computed, but ignoring it silently is how a
+		// connection leak goes unnoticed.
+		if cerr := resp.Body.Close(); cerr != nil {
+			zap.L().Warn("closing CSAF feed response body", zap.Error(cerr))
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		api.BadRequest(c, fmt.Sprintf("CSAF feed returned status %d", resp.StatusCode))

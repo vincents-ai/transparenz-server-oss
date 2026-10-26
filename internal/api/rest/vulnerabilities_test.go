@@ -31,19 +31,6 @@ func newVulnTestDB(t *testing.T) (*gorm.DB, uuid.UUID, *repository.Vulnerability
 	return db, org.ID, repo, grcRepo
 }
 
-func newVulnTestContext(t *testing.T, method, url string) (*gin.Context, *httptest.ResponseRecorder, *repository.VulnerabilityRepository, *repository.GRCMappingRepository, uuid.UUID) {
-	t.Helper()
-	db, orgID, repo, grcRepo := newVulnTestDB(t)
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest(method, url, nil)
-	c.Request = req.WithContext(middleware.ContextWithOrgID(req.Context(), orgID))
-	c.Set("org_uuid", orgID)
-	c.Set("_test_db", db)
-	return c, w, repo, grcRepo, orgID
-}
-
 func createVulnInDB(t *testing.T, db *gorm.DB, orgID uuid.UUID, cve, severity string) {
 	t.Helper()
 	vuln := &models.Vulnerability{

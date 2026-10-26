@@ -22,7 +22,7 @@ func (f fakeHealth) IsHealthy() bool { return f.healthy }
 // thirty-line stub would have been the worse trade.
 type stubDriver struct{ err error }
 
-func (d stubDriver) Open(string) (driver.Conn, error) { return stubConn{d.err}, nil }
+func (d stubDriver) Open(string) (driver.Conn, error) { return stubConn(d), nil }
 
 type stubConn struct{ err error }
 
@@ -37,7 +37,7 @@ func stubDB(t *testing.T, pingErr error) *sql.DB {
 	name := "stub"
 	// A unique name per database keeps the driver registry global state from
 	// leaking between parallel tests.
-	name = name + t.Name()
+	name += t.Name()
 	sql.Register(name, stubDriver{err: pingErr})
 	db, err := sql.Open(name, "")
 	if err != nil {

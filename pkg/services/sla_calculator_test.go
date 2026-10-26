@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -56,14 +57,29 @@ func TestHandlingCriticalWindowIsLongerThanExploited(t *testing.T) {
 type fakeAutoSubmitter struct {
 	err        error
 	submission *models.EnisaSubmission
-	calledCVE  string
-	calledOrg  uuid.UUID
+
+	// mu guards the recorded call. Submit runs on the calculator's goroutine while
+	// the test's Eventually polls these fields, so they are synchronised rather
+	// than read racily: `go test -race` flagged the unsynchronised pair, and a test
+	// double that races is a test that reports a product race which is not there.
+	mu        sync.Mutex
+	calledCVE string
+	calledOrg uuid.UUID
 }
 
 func (f *fakeAutoSubmitter) Submit(_ context.Context, orgID uuid.UUID, cve string, _ models.JSONMap) (*models.EnisaSubmission, error) {
+	f.mu.Lock()
 	f.calledCVE = cve
 	f.calledOrg = orgID
+	f.mu.Unlock()
 	return f.submission, f.err
+}
+
+// Called returns the arguments of the last Submit call.
+func (f *fakeAutoSubmitter) Called() (string, uuid.UUID) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calledCVE, f.calledOrg
 }
 
 // TestApplySlaAutomation_FullyAutomatic_FlipsOnlyOnSuccess verifies the core
@@ -81,7 +97,7 @@ func TestApplySlaAutomation_FullyAutomatic_FlipsOnlyOnSuccess(t *testing.T) {
 		// The goroutine flips the status asynchronously; poll until Submit was
 		// called AND the status has landed.
 		require.Eventually(t, func() bool {
-			if fake.calledCVE != sla.Cve {
+			if cve, _ := fake.Called(); cve != sla.Cve {
 				return false
 			}
 			var got models.SlaTracking
@@ -105,7 +121,7 @@ func TestApplySlaAutomation_FullyAutomatic_FlipsOnlyOnSuccess(t *testing.T) {
 		// previous version slept a fixed 100ms and asserted, which could pass
 		// simply because the goroutine had not run yet — a false pass that
 		// proved nothing about the behaviour under test.
-		require.Eventually(t, func() bool { return fake.calledCVE == sla.Cve },
+		require.Eventually(t, func() bool { cve, _ := fake.Called(); return cve == sla.Cve },
 			10*time.Second, 50*time.Millisecond, "the submission must have been attempted")
 
 		// And then hold the line: the status must not flip, for long enough
