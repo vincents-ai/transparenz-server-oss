@@ -119,7 +119,7 @@ func (b *SchemaPerOrgBackend) getOrCreateOrgDB(ctx context.Context, orgID uuid.U
 
 	// Run migrations on the new schema.
 	if b.migrationDir != "" {
-		migrations, mErr := b.loadMigrations()
+		migrations, mErr := b.loadMigrations(schemaName)
 		if mErr != nil {
 			return nil, fmt.Errorf("load migrations for schema %s: %w", schemaName, mErr)
 		}
@@ -134,6 +134,14 @@ func (b *SchemaPerOrgBackend) getOrCreateOrgDB(ctx context.Context, orgID uuid.U
 					zap.String("file", filepath.Base(m.path)),
 					zap.Error(err),
 				)
+				// Drop the half-built schema and its pool. Returning here used to
+				// leave a partially migrated schema behind: the next provisioning
+				// attempt would CREATE SCHEMA IF NOT EXISTS, find it, and re-run
+				// every migration from the start against objects that already
+				// exist — so a transient failure became a permanently broken org
+				// that no retry could fix.
+				_ = sqlDB.Close()
+				b.cleanupSchema(schemaName)
 				return nil, fmt.Errorf("apply migration %s: %w", filepath.Base(m.path), err)
 			}
 		}
@@ -169,7 +177,7 @@ type migration struct {
 	sql     string
 }
 
-func (b *SchemaPerOrgBackend) loadMigrations() ([]migration, error) {
+func (b *SchemaPerOrgBackend) loadMigrations(schemaName string) ([]migration, error) {
 	if b.migrationDir == "" {
 		return nil, nil
 	}
@@ -200,7 +208,17 @@ func (b *SchemaPerOrgBackend) loadMigrations() ([]migration, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read migration %s: %w", e.Name(), err)
 		}
-		sql := strings.ReplaceAll(string(content), "compliance.", "")
+		// Point the statements at this organisation's schema explicitly. The
+		// previous version deleted the "compliance." prefix and relied on the
+		// pool's search_path; that works, but it also rewrites the string
+		// wherever it appears — including inside a literal — and it leaves the
+		// statements unqualified, so a future pool that loses search_path
+		// silently writes to whatever schema comes first. Substituting the real
+		// schema name keeps the statements qualified and makes the target
+		// explicit. It is still a textual substitution, which is the honest
+		// description: a fully SQL-aware transformer would be better and is not
+		// what this is.
+		sql := strings.ReplaceAll(string(content), "compliance.", pq.QuoteIdentifier(schemaName)+".")
 		migrations = append(migrations, migration{version: v, path: filepath.Join(b.migrationDir, e.Name()), sql: sql})
 	}
 

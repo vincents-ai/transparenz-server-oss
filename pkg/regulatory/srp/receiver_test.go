@@ -1,8 +1,8 @@
-// Copyright (c) 2026 Vincent Palmer. All rights reserved.
+// SPDX-FileCopyrightText: 2026 Vincent Palmer
+// SPDX-License-Identifier: AGPL-3.0-only
 //
-// This software is proprietary and confidential. Unauthorized use,
-// redistribution, or modification is strictly prohibited.
-// See LICENSE.md for terms.
+// This file is part of Transparenz, an open-source CRA compliance server.
+// It is licensed under the GNU Affero General Public License v3.0; see LICENSE.
 
 package srp
 

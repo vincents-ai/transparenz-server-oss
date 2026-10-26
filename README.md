@@ -71,10 +71,41 @@ nix-shell -p k6 -p postgresql --run './run-e2e.sh'
 - **Coordinated Disclosure** — Upstream notification workflow with 90-day response window
 - **Audit Trail** — Compliance event tracking with verification
 - **Real-time Alerts** — SSE-based vulnerability and SLA alerts
-- **Multi-Tenant Isolation** — Row-Level Security (RLS) and schema-per-org
+- **Multi-Tenant Isolation** — application-level scoping in the repository layer, and
+  schema-per-organisation as an alternative backend. See
+  [Tenant isolation](#tenant-isolation) for what this does and does not guarantee
 - **Submission Records** — List and download submission records (manual filings to the
   ENISA SRP, and pushes to a national CSIRT endpoint)
 - **Metrics** — Prometheus `/metrics` endpoint with basic auth
+
+## Tenant isolation
+
+Two modes ship, and they do not provide the same guarantee.
+
+**Shared database (default).** Every tenant-owned table carries `org_id`, and the
+repository layer scopes queries through `repository.TenantScope`, which appends
+`WHERE org_id = ?` and — importantly — falls back to `WHERE 1 = 0` when no
+organisation is present in the context. Isolation therefore depends on every
+query going through those helpers. The CRA reporting repositories instead take an
+explicit organisation id and filter on it directly (`WHERE id = ? AND org_id = ?`).
+
+**There is no PostgreSQL row-level security.** No migration creates a policy, so
+the database will not stop a query that forgets its `org_id` predicate; the
+application is the only boundary. That is a real limitation, not a detail, and it
+means:
+
+- a new repository method that omits `TenantScope` leaks data silently, and
+- anyone with database credentials sees every tenant.
+
+If you need isolation that survives an application bug, use schema-per-organisation
+below, or one database per tenant.
+
+**Schema per organisation.** Each organisation gets its own PostgreSQL schema and
+its own connection pool, with the schema selected by `search_path` in that pool's
+DSN rather than by `SET search_path` on a shared connection — so concurrent
+requests cannot race each other's search path. Provisioning, migration and
+teardown of those schemas are covered by `pkg/repository/instance_backend_test.go`
+and need a live database to run.
 
 ## Commercial Edition
 
@@ -176,7 +207,7 @@ Go's `internal/` package restriction prevents other modules from importing inter
 │  VulnzMatcher · Disclosure Service · ScanWorker  │
 ├───────────────────────────────────────────────────┤
 │           Repository Layer (pkg/repository)        │
-│     TenantBackend: RLS / Schema-per-Org           │
+│   TenantBackend: scoped queries / Schema-per-Org   │
 ├───────────────────────────────────────────────────┤
 │              PostgreSQL 14+                        │
 │     compliance schema · multi-tenant isolation    │

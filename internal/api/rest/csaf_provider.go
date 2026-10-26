@@ -1,4 +1,5 @@
-// Copyright (c) 2026 Vincent Palmer. All rights reserved.
+// SPDX-FileCopyrightText: 2026 Vincent Palmer
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // CSAF v2.0 Provider endpoints per OASIS standard:
 // https://docs.oasis-open.org/csaf/csaf/v2.0/os/csaf-v2.0-os.html

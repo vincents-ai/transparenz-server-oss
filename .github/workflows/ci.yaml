@@ -146,6 +146,15 @@ jobs:
       # the suite both ways against a live PostgreSQL.
       - name: Unit tests
         run: go test -v -race -p 1 -coverprofile=coverage.out ./pkg/... ./internal/...
+
+      # The integration-tagged tests in pkg/... and internal/... were never built
+      # by any job — the only integration job targets ./tests/integration — and one
+      # of them had stopped compiling entirely. Building them here (and running
+      # them against the job's database) is what keeps that from rotting again.
+      - name: Integration-tagged tests in pkg and internal
+        run: go test -count=1 -tags integration ./pkg/... ./internal/...
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
       - name: Check coverage
         run: |
           COVERAGE=$(go tool cover -func=coverage.out | tail -1 | awk '{print $3}' | sed 's/%//')

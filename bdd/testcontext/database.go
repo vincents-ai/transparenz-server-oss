@@ -1,4 +1,5 @@
-// Copyright (c) 2026 Vincent Palmer. Licensed under AGPL-3.0.
+// SPDX-FileCopyrightText: 2026 Vincent Palmer
+// SPDX-License-Identifier: AGPL-3.0-only
 package testcontext
 
 import (

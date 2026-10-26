@@ -1,6 +1,7 @@
 // transparenz-server-oss — Open-source CRA/NIS2 compliance reporting server.
 //
-// Copyright (c) 2026 Vincent Palmer. Licensed under AGPL-3.0.
+// SPDX-FileCopyrightText: 2026 Vincent Palmer
+// SPDX-License-Identifier: AGPL-3.0-only
 // This is the open-source edition. The commercial edition adds:
 // ENISA submission, Greenbone integration, SBOM webhooks, telemetry,
 // PDF reports, signing key management, and per-org rate limiting.
