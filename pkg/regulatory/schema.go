@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // identifierPattern matches the identifier forms ENISA's reporting fields use
@@ -127,6 +128,14 @@ type ReportingField struct {
 	// EnumValues constrains FormatEnum fields.
 	EnumValues []string `json:"enum_values,omitempty"`
 
+	// MaxLength is the character limit the glossary states for this field, in
+	// characters rather than bytes. Zero means the glossary states no limit.
+	//
+	// Only the v1.6 transcription populates it: the earlier schemas were
+	// transcribed without the limits, so their fields stay unconstrained rather
+	// than acquiring a limit by guesswork.
+	MaxLength int `json:"max_length,omitempty"`
+
 	// ApplicableTo is the event classes the field applies to. A field that
 	// applies to neither is a schema error.
 	ApplicableTo []EventClass `json:"applies_to"`
@@ -152,6 +161,16 @@ type ReportingField struct {
 	// empty when IdentifierSourced is false, so a position can never appear
 	// without its provenance.
 	IdentifierPosition string `json:"identifier_position,omitempty"`
+
+	// AuthorityAuthored marks a field the receiving authority writes, not the
+	// manufacturer. The only such field in v1.6 is 41, the CSIRT Note.
+	//
+	// It is a property of the field rather than a special case in the builder for
+	// the same reason the rest of the schema is data: the rule that this product
+	// must never write another party's record belongs next to the field it
+	// applies to, so a future glossary revision that adds such a field carries the
+	// rule with it.
+	AuthorityAuthored bool `json:"authority_authored,omitempty"`
 }
 
 // AppliesTo reports whether the field is in scope for an event class.
@@ -387,6 +406,16 @@ func (s *ReportingSchema) Validate(stage Stage, class EventClass, values Values)
 }
 
 func checkFormat(f ReportingField, v string) string {
+	// Character limits are stated per field by the glossary, and the SRP form
+	// enforces them, so a value this product accepts but the platform rejects is
+	// a filing that fails at the last moment. Counted in runes because the
+	// glossary counts characters, and a byte count would reject legitimate
+	// non-ASCII text early.
+	if f.MaxLength > 0 {
+		if n := utf8.RuneCountInString(v); n > f.MaxLength {
+			return fmt.Sprintf("value is %d characters; the glossary allows at most %d", n, f.MaxLength)
+		}
+	}
 	switch f.Format {
 	case FormatEnum:
 		for _, allowed := range f.EnumValues {
@@ -396,7 +425,11 @@ func checkFormat(f ReportingField, v string) string {
 		}
 		return fmt.Sprintf("value %q is not one of [%s]", v, strings.Join(f.EnumValues, ", "))
 	case FormatDate, FormatDateTime:
-		for _, layout := range []string{time.RFC3339, "2006-01-02"} {
+		// SRPTimestampLayout is included because it is the representation the
+		// glossary prints for every date-time field ("2026-08-24 09:15 UTC"),
+		// and a value copied from the glossary example must validate rather than
+		// be rejected for being in the authority's own format.
+		for _, layout := range []string{time.RFC3339, "2006-01-02", SRPTimestampLayout} {
 			if _, err := time.Parse(layout, v); err == nil {
 				return ""
 			}

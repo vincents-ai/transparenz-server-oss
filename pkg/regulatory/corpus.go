@@ -297,6 +297,26 @@ func BuildSRPGlossarySchema(sourceKey string, publishedAt time.Time) (*Reporting
 	return s, nil
 }
 
+// schemaPublishedAt resolves the publication instant to record for a schema this
+// build introduces.
+//
+// The document date is used where it is later than the retrieval instant, because
+// a glossary published before we read it became operative on its own date. Where
+// the schema is published by this build rather than by the authority — which is
+// the case for a corrected transcription — the build's retrieval instant is used.
+// Either way the result is forced strictly after the schema it supersedes, so
+// SchemaAt has exactly one answer for any instant.
+func schemaPublishedAt(documentDate, retrievedAt, after time.Time) time.Time {
+	out := documentDate
+	if !retrievedAt.IsZero() && retrievedAt.After(out) {
+		out = retrievedAt
+	}
+	if !out.After(after) {
+		out = after.Add(time.Nanosecond)
+	}
+	return out
+}
+
 // BuildDefaultRegistry assembles the regulatory corpus Transparenz ships with.
 //
 // Every entry is pinned to an explicit source version with a content hash, and
@@ -350,7 +370,14 @@ func BuildDefaultRegistry(retrievedAt time.Time) (*Registry, *SchemaRegistry, er
 		SourceHash:      ComputeSourceHash([]byte("ENISA-SRP-FAQ|2026-09-17")),
 	}
 
-	for _, s := range []Source{craSource, commissionGuidance, srpGlossary, srpFAQ} {
+	// The v1.6 glossary is the first source in this registry whose hash is
+	// computed from retained text rather than from a label. That is the whole
+	// difference between a source that can be audited and one that can only be
+	// believed: SourceHash here is the SHA-256 of ENISA_SRP_GLOSSARY_v1.6.md as
+	// embedded in this package, so anyone who has the binary can recompute it.
+	srpGlossaryV16 := SRPGlossaryV16Source()
+
+	for _, s := range []Source{craSource, commissionGuidance, srpGlossary, srpFAQ, srpGlossaryV16} {
 		if err := r.AddSource(s); err != nil {
 			return nil, nil, err
 		}
@@ -366,6 +393,7 @@ func BuildDefaultRegistry(retrievedAt time.Time) (*Registry, *SchemaRegistry, er
 		Guidance: []string{
 			commissionGuidance.Key(),
 			srpGlossary.Key(),
+			srpGlossaryV16.Key(),
 			srpFAQ.Key(),
 		},
 		AppliesFrom: time.Date(2026, 9, 11, 0, 0, 0, 0, time.UTC),
@@ -403,12 +431,30 @@ func BuildDefaultRegistry(retrievedAt time.Time) (*Registry, *SchemaRegistry, er
 		return nil, nil, err
 	}
 
-	sr := NewSchemaRegistry()
-	if err := sr.Register(v1); err != nil {
+	// V3 is the schema new work must use, and it is a transcription rather than a
+	// relabel: every field carries the identifier the v1.6 glossary assigns it and
+	// the per-stage requirement v1.6 states. V2 only ever corrected two
+	// identifiers, so a package built under it is conformant for v19 and v20 and
+	// for nothing else.
+	//
+	// Its PublishedAt must be strictly later than V2's, for the same reason V2's had
+	// to be later than V1's: SchemaAt resolves "the schema current at instant T" by
+	// publication date, and equal dates make that lookup depend on map iteration
+	// order. schemaPublishedAt enforces the ordering rather than leaving it to
+	// whichever date the caller happens to pass.
+	v3, err := BuildSRPGlossaryV16Schema(
+		srpGlossaryV16.Key(),
+		schemaPublishedAt(srpGlossaryV16.PublicationDate, retrievedAt, v2Published),
+	)
+	if err != nil {
 		return nil, nil, err
 	}
-	if err := sr.Register(v2); err != nil {
-		return nil, nil, err
+
+	sr := NewSchemaRegistry()
+	for _, s := range []*ReportingSchema{v1, v2, v3} {
+		if err := sr.Register(s); err != nil {
+			return nil, nil, err
+		}
 	}
 	if err := r.Validate(); err != nil {
 		return nil, nil, err
@@ -440,10 +486,14 @@ const (
 // official glossary, and CVE is optional at early warning. Every other field
 // keeps its existing identifier because the official identifier for it could
 // not be sourced, and inventing one would be the same class of defect this
-// whole remediation has been removing. A full field-by-field crosswalk against
-// a retained glossary artifact remains outstanding, and
-// registrySchemaIsNotFullyCrosswalked() says so in code rather than only in a
-// comment.
+// whole remediation has been removing.
+//
+// The crosswalk this comment used to defer to a function that did not exist
+// (registrySchemaIsNotFullyCrosswalked) has since been done in
+// BuildSRPGlossaryV16Schema against the retained v1.6 glossary, and the guard is
+// a real test rather than a comment: see TestEveryV16FieldIdentifierIsSourced,
+// which fails if any field in the v1.6 schema carries an identifier this
+// codebase assigned.
 //
 // The v19 collision is resolved by versioning rather than by editing. Under
 // V1, v19 means reporting closure; under V2, v19 means the CVE identifier. Both

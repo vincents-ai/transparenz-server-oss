@@ -2,29 +2,27 @@ package regulatory
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"testing"
 	"time"
 )
 
-// The SRP schema is INCOMPLETE, and this test makes that fact impossible to
-// overlook.
+// The SRP schema's crosswalk state, printed on every run so it cannot be lost in
+// a document nobody opens.
 //
-// Thirteen of fifteen fields carry identifiers this implementation assigned
-// rather than transcribed from the authoritative ENISA glossary. That is
-// recorded on every field, in the conformance matrix, and in the release notes,
-// and it is easy to lose in all three. This test prints the count and the names
-// on every run, and fails if a field is marked as transcribed without a
-// position, so the provenance flag cannot drift into meaning something other
-// than what it says.
+// The history matters here. V2 carried thirteen of fifteen identifiers this
+// implementation assigned rather than transcribed, and this test existed to make
+// that impossible to overlook until the glossary was obtained. It now reports the
+// v1.6 schema, which is a transcription: every field sourced, none assigned. V2's
+// state is still reported, because a report filed under V2 was filed against
+// those identifiers and the record has to stay readable.
 //
-// It does NOT fail merely because fields are unsourced. That would mean the
-// suite is red until the glossary document is obtained, which trains people to
-// ignore it. The gap is real and documented; the failure this prevents is a
-// field being CLAIMED as official without one.
+// The failure this test prevents is unchanged: a field CLAIMED as official
+// without a position behind it.
 func TestSRPSchemaReportsItsCrosswalkCompleteness(t *testing.T) {
-	s, err := BuildSRPGlossarySchemaV2("ENISA_OPERATIONAL_GUIDANCE|ENISA SRP Glossary|1.3",
-		time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC))
+	s, err := BuildSRPGlossaryV16Schema("ENISA_OPERATIONAL_GUIDANCE|ENISA SRP Glossary|1.6",
+		time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("build schema: %v", err)
 	}
@@ -44,31 +42,69 @@ func TestSRPSchemaReportsItsCrosswalkCompleteness(t *testing.T) {
 	}
 	sort.Strings(unsourced)
 
-	t.Logf("SRP glossary crosswalk: %d of %d fields transcribed from the official glossary",
-		len(sourced), len(sourced)+len(unsourced))
-	for _, s := range sourced {
-		t.Logf("  sourced    %s", s)
-	}
+	t.Logf("SRP glossary crosswalk (%s): %d of %d fields transcribed from the official glossary",
+		s.ID, len(sourced), len(sourced)+len(unsourced))
 	if len(unsourced) > 0 {
 		t.Logf("  UNSOURCED (%d), assigned by this implementation and marked as such: %v",
 			len(unsourced), unsourced)
-		t.Logf("  These must not be described as an authoritative mapping. A package generated " +
-			"today carries correct v19 and v20 for CVE and EUVD and implementation-chosen " +
-			"identifiers for the rest.")
+		t.Logf("  These must not be described as an authoritative mapping.")
+	} else {
+		t.Logf("  complete: every field carries the position the published glossary assigns it")
 	}
+
+	// The current schema is a transcription, so an unsourced field appearing in
+	// it is a regression, not a known gap. This is the line that was deliberately
+	// absent while the glossary was unobtainable; now that it is retained, absence
+	// of provenance is a defect.
+	if len(unsourced) > 0 {
+		t.Errorf("%s carries %d fields whose identifier this implementation assigned; "+
+			"the v1.6 glossary is retained in this package and every position is transcribable",
+			s.ID, len(unsourced))
+	}
+
+	// V2's state is reported for the historical record rather than asserted.
+	v2, err := BuildSRPGlossarySchemaV2("ENISA_OPERATIONAL_GUIDANCE|ENISA SRP Glossary|1.3",
+		time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("build V2: %v", err)
+	}
+	var v2Sourced int
+	for _, f := range v2.Fields() {
+		if f.IdentifierSourced {
+			v2Sourced++
+		}
+	}
+	t.Logf("%s (superseded, retained for reports filed under it): %d of %d identifiers sourced",
+		v2.ID, v2Sourced, len(v2.Fields()))
 }
 
 // An identifier position that is not the documented form would silently defeat
 // the whole point of recording it.
 func TestRecordedGlossaryPositionsAreWellFormed(t *testing.T) {
-	for _, f := range []struct{ id, pos string }{
-		{FieldCVEID, "v19"},
-		{FieldEUVDID, "v20"},
-	} {
-		if len(f.pos) < 2 || f.pos[0] != 'v' {
-			t.Errorf("%s position %q is not a glossary position of the form vNN",
-				f.id, f.pos)
+	// Checked against the schema's own fields rather than against a hardcoded
+	// pair. The earlier form asserted two literals, so it would have passed even
+	// if every position in the schema were malformed.
+	s, err := BuildSRPGlossaryV16Schema("k", time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("build schema: %v", err)
+	}
+
+	// The published position forms: a bare decimal for the common fields
+	// (with "7a" as the one lettered variant), "vNN"/"vNNa" for AEV, "iNN"
+	// for severe incidents, and two decimal case-management positions.
+	wellFormed := regexp.MustCompile(`^([0-9]{1,2}[a-z]?|v[0-9]{2}[a-z]?|i[0-9]{2})$`)
+	checked := 0
+	for _, f := range s.Fields() {
+		if !f.IdentifierSourced {
+			continue
 		}
+		checked++
+		if !wellFormed.MatchString(f.IdentifierPosition) {
+			t.Errorf("%s position %q is not a published glossary position form", f.ID, f.IdentifierPosition)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no sourced positions were checked; the assertion above would pass vacuously")
 	}
 }
 
@@ -161,6 +197,29 @@ func TestInternalIdentifiersAndPositionsAreDistinctOnEverySourcedField(t *testin
 		if f.IdentifierSourced && f.ID == f.IdentifierPosition {
 			t.Errorf("field %q has the same internal id and official position %q; "+
 				"the two must be distinguishable", f.ID, f.IdentifierPosition)
+		}
+	}
+
+	// The v1.6 schema deliberately reverses that arrangement. Because it was
+	// transcribed after the glossary was in hand, it keys its fields by the
+	// published identifiers themselves, so id and position converge. That is not
+	// a regression of the V2 invariant — the invariant existed because V2's keys
+	// were inherited from an earlier, wrong assignment. Where the key and the
+	// position differ, the separation must hold; where the key IS the published
+	// position, there is nothing to distinguish.
+	v16, err := BuildSRPGlossaryV16Schema("k", time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("build v1.6: %v", err)
+	}
+	for _, f := range v16.Fields() {
+		if !f.IdentifierSourced {
+			t.Errorf("v1.6 field %q is not sourced; the schema is a transcription and every "+
+				"field must say which published position it came from", f.ID)
+			continue
+		}
+		if f.ID != f.IdentifierPosition {
+			t.Errorf("v1.6 field %q carries position %q; this schema keys fields by the "+
+				"published identifier, so the two must agree", f.ID, f.IdentifierPosition)
 		}
 	}
 }

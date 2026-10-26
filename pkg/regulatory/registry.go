@@ -189,19 +189,49 @@ func (s Source) Validate() error {
 	if s.PublicationDate.IsZero() {
 		return errors.New("regulatory: source requires a publication date")
 	}
-	if len(s.SourceHash) != sha256.Size*2 {
-		return errors.New("regulatory: source requires a 64-character hex SHA-256 of the retrieved document")
-	}
-	if _, err := hex.DecodeString(s.SourceHash); err != nil {
-		return fmt.Errorf("regulatory: source hash is not valid hex: %w", err)
+	if _, err := hexDigest(s.SourceHash); err != nil {
+		return err
 	}
 	return nil
 }
 
+// hashSchemePrefix marks a digest as algorithm-identified. SourceArtifact
+// carries one; Source.SourceHash historically did not.
+const hashSchemePrefix = "sha256:"
+
+// hexDigest validates a SHA-256 digest in either of the two forms this package
+// has used — bare hex, and hex with a "sha256:" scheme prefix — and returns the
+// bare hex.
+//
+// Both forms exist for a reason and neither is being migrated away: a retained
+// artifact is built by NewSourceArtifact, which prefixes the scheme so a reader
+// can tell which algorithm produced it, while every historical label-derived
+// entry stores bare hex. AttachArtifact copies the artifact's form into
+// SourceHash. Before this helper existed, Validate required exactly 64
+// characters and VerifyHash compared against bare hex, which meant a retained
+// artifact could never be attached to a source that then validated — the reason
+// ArtifactRetained had no call site at all.
+func hexDigest(s string) (string, error) {
+	bare := strings.TrimPrefix(s, hashSchemePrefix)
+	if len(bare) != sha256.Size*2 {
+		return "", fmt.Errorf(
+			"regulatory: source requires a %d-character hex SHA-256 of the retrieved document, got %d characters",
+			sha256.Size*2, len(bare))
+	}
+	if _, err := hex.DecodeString(bare); err != nil {
+		return "", fmt.Errorf("regulatory: source hash is not valid hex: %w", err)
+	}
+	return bare, nil
+}
+
 // VerifyHash checks a document's bytes against the recorded hash.
 func (s Source) VerifyHash(document []byte) bool {
+	bare, err := hexDigest(s.SourceHash)
+	if err != nil {
+		return false
+	}
 	sum := sha256.Sum256(document)
-	return hex.EncodeToString(sum[:]) == s.SourceHash
+	return hex.EncodeToString(sum[:]) == bare
 }
 
 // ComputeSourceHash is the helper used when ingesting a document, so the

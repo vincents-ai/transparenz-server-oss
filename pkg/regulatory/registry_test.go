@@ -44,7 +44,14 @@ func TestEverySourceIsPinnedToAVersionAndHash(t *testing.T) {
 	for _, s := range sources {
 		require.NoError(t, s.Validate(), "source %s is not citable", s.Key())
 		assert.NotEmpty(t, s.Version)
-		assert.Len(t, s.SourceHash, 64)
+		// Both digest forms are in use and both are legitimate: a label-derived
+		// hash is bare hex, a retained artifact's hash carries the algorithm
+		// prefix. Asserting a bare 64-character length here rejected the verifiable
+		// source, which is exactly backwards — the check is that the digest is a
+		// valid SHA-256, not that it is formatted the older way.
+		bare, err := hexDigest(s.SourceHash)
+		require.NoError(t, err, "source %s does not carry a valid SHA-256", s.Key())
+		assert.Len(t, bare, 64)
 	}
 }
 
@@ -117,18 +124,22 @@ func TestCurrentSourceIsTheNewestEffectiveNotTheNewestPublished(t *testing.T) {
 
 func TestVersionHistoryRemainsQueryable(t *testing.T) {
 	r, _ := corpus(t)
+	// Two glossary versions ship: 1.3, which the V1 and V2 schemas were
+	// transcribed from, and 1.6, which the current schema cites. Both remain — a
+	// report validated against 1.3 stays explainable after 1.6 exists.
 	versions := r.SourceVersions(AuthorityENISAOperationalGuidance, DocSRPGlossary)
-	require.Len(t, versions, 1)
-	// With a successor registered, both remain — a report validated against
-	// 1.3 stays explainable after 1.4 exists.
+	require.Len(t, versions, 2)
+	assert.Equal(t, []string{"1.3", "1.6"}, []string{versions[0].Version, versions[1].Version})
+
+	// Adding a further version keeps all three rather than replacing any.
 	future := Source{
-		Authority: AuthorityENISAOperationalGuidance, Document: DocSRPGlossary, Version: "1.4",
-		PublicationDate: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC),
+		Authority: AuthorityENISAOperationalGuidance, Document: DocSRPGlossary, Version: "1.7",
+		PublicationDate: time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC),
 		RetrievedAt:     retrieved, EffectiveFrom: time.Date(2027, 1, 11, 0, 0, 0, 0, time.UTC),
-		SourceHash: ComputeSourceHash([]byte("v1.4")), Supersedes: "1.3",
+		SourceHash: ComputeSourceHash([]byte("v1.7")), Supersedes: "1.6",
 	}
 	require.NoError(t, r.AddSource(future))
-	assert.Len(t, r.SourceVersions(AuthorityENISAOperationalGuidance, DocSRPGlossary), 2)
+	assert.Len(t, r.SourceVersions(AuthorityENISAOperationalGuidance, DocSRPGlossary), 3)
 }
 
 // --- authority: law is not guidance ---------------------------------------
@@ -159,8 +170,9 @@ func TestArticle14ObligationIsAnchoredInTheRegulationNotInEnisaGuidance(t *testi
 	assert.Equal(t, "Article 14", o.Article)
 
 	// ENISA's glossary and the Commission's guidance inform the implementation
-	// but are not the legal basis.
-	require.Len(t, o.Guidance, 3)
+	// but are not the legal basis. Both glossary versions remain cited: the older
+	// one still explains reports filed against the schemas transcribed from it.
+	require.Len(t, o.Guidance, 4)
 	for _, g := range o.Guidance {
 		src, ok := r.SourceByKey(g)
 		require.True(t, ok)
@@ -222,39 +234,58 @@ func TestArticle14ObligationIsEffectiveFromEleventhSeptemberTwentyTwentySix(t *t
 
 // --- ENISA SRP glossary schema ---------------------------------------------
 
-func TestSchemaIsPinnedToGlossaryVersionOnePointThree(t *testing.T) {
+func TestCurrentSchemaIsTheGlossaryTranscriptionInForce(t *testing.T) {
 	_, sr := corpus(t)
+
 	s, err := sr.Current(RegimeCRAArticle14)
 	require.NoError(t, err)
-	// New work uses V2, which carries the official glossary identifiers.
-	assert.Equal(t, SchemaIDSRPGlossaryV2, s.ID)
-	assert.Equal(t, "1.3", s.SourceKey[len(s.SourceKey)-3:])
+	assert.Equal(t, SchemaIDSRPGlossaryV16, s.ID,
+		"new work must validate against the glossary in force, not against an earlier corrected one")
+	assert.Contains(t, s.SourceKey, "|1.6",
+		"the current schema must cite the source version it was transcribed from")
 
-	// The V1 schema must still be registered and retrievable, unchanged, so
-	// packages and reports already generated under it stay interpretable. This
-	// is the acceptance criterion that a schema migration must never reinterpret
-	// historical data.
-	v1, ok2 := sr.Schema(SchemaIDSRPGlossaryV1)
-	require.True(t, ok2, "V1 must remain registered for historical reports")
-	assert.Equal(t, SchemaIDSRPGlossaryV1, v1.ID)
+	// The earlier versions must still be registered and retrievable, unchanged,
+	// so packages and reports already generated under them stay interpretable.
+	// This is the acceptance criterion that a schema migration must never
+	// reinterpret historical data.
+	v1, ok := sr.Schema(SchemaIDSRPGlossaryV1)
+	require.True(t, ok, "V1 must remain registered for historical reports")
 	v1Closure, ok := v1.Field(FieldClosure)
 	require.True(t, ok, "V1 must keep its own meaning for v19")
 	assert.Equal(t, FieldClosure, v1Closure.ID,
 		"under V1, v19 is reporting closure and must NOT be reinterpreted as a CVE")
 
-	// Under V2, v19 is the CVE identifier. Both schemas are registered, so a
-	// record's own schema ID decides which meaning applies.
-	v2CVE, ok := s.Field(FieldCVEID)
+	v2, ok := sr.Schema(SchemaIDSRPGlossaryV2)
+	require.True(t, ok, "V2 must remain registered for reports filed under it")
+	v2CVE, ok := v2.Field(FieldCVEID)
 	require.True(t, ok)
-	assert.Equal(t, "v19", v2CVE.IdentifierPosition)
-	assert.True(t, v2CVE.IdentifierSourced, "the CVE position is transcribed from the official glossary")
-	assert.Equal(t, RequirementOptional, v2CVE.RequirementAt(StageEarlyWarning, EventClassAEV),
-		"the official glossary has the CVE identifier optional at early warning")
+	assert.Equal(t, "v19", v2CVE.IdentifierPosition, "under V2, v19 is the CVE identifier")
 
-	v2EUVD, ok := s.Field(FieldEUVDID)
+	// Under v1.6, v19 is the CVE identifier as published, and the concepts that
+	// never had a glossary position are gone rather than renumbered. A record's
+	// own schema id decides which meaning applies, which is why nothing above is
+	// repointed in place.
+	v16CVE, ok := s.Field(FieldV16CVEID)
 	require.True(t, ok)
-	assert.Equal(t, "v20", v2EUVD.IdentifierPosition)
-	assert.True(t, v2EUVD.IdentifierSourced)
+	assert.True(t, v16CVE.IdentifierSourced)
+	assert.Equal(t, RequirementOptional, v16CVE.RequirementAt(StageEarlyWarning, EventClassAEV),
+		"the published glossary has the CVE identifier optional at early warning")
+	// The three fields that never had a glossary position are gone from the v1.6
+	// schema. Checked by NAME rather than by the old constants' values, because
+	// those values now collide with real published positions — FieldClosure is
+	// "v19", which v1.6 uses for the CVE identifier. A value-based check here
+	// would test nothing.
+	phantomNames := map[string]bool{
+		"Evidence of active exploitation":  true,
+		"Remediation and recovery outcome": true,
+		"Reporting closure":                true,
+	}
+	for _, f := range s.Fields() {
+		assert.False(t, phantomNames[f.Name],
+			"field %q (%s) has no position in any published glossary and must not appear in the v1.6 schema", f.Name, f.ID)
+	}
+	require.Equal(t, len(srp16Matrix), len(s.Fields()),
+		"the schema must contain exactly the %d fields the matrix lists", len(srp16Matrix))
 }
 
 // The six ENISA conformance fixtures the brief calls for: every combination of
@@ -265,34 +296,55 @@ func TestENISAConformanceFixtures(t *testing.T) {
 	s, err := sr.Current(RegimeCRAArticle14)
 	require.NoError(t, err)
 
-	// A final report is cumulative: it carries the notification's facts forward
-	// and adds the outcome and closure facts. The closure field is the one that
-	// genuinely does not apply at earlier stages, so the fixtures are built
-	// stage-aware rather than from one shared map — a single map would supply
-	// a closure date on an early warning and the validator would rightly
-	// reject it.
-	aevCore := Values{
-		FieldCVEID:        "CVE-2026-31337",
-		FieldExploitation: "Observed mass exploitation of the authentication bypass; artefact pcap-2026-09-20-0845",
-		FieldSeverity:     "Remote unauthenticated compromise of product data",
-		FieldAttackVector: "network",
-		FieldProduct:      "Example Gateway 3.x (all versions below 3.1.4), incl. embedded libfoo 2.2",
-		FieldMitigation:   "none available at time of early warning",
+	// The v1.6 form is NOT cumulative with everything optional later: most fields
+	// are not applicable outside one or two stages. Each fixture therefore holds
+	// only the fields that apply at its own stage, which is what makes this a
+	// test of the matrix rather than of the validator's tolerance. Supplying the
+	// early-warning fields on a final report is an error, and the fixtures below
+	// would fail if the matrix were flattened back to "everything everywhere".
+	commonEW := Values{
+		FieldV16Title:            "Active exploitation affecting Example Gateway 4.2",
+		FieldV16Summary:          "An actively exploited authentication bypass affects Example Gateway 4.2. A workaround is published and an update is in preparation.",
+		FieldV16ManufacturerName: "Example Manufacturing GmbH",
+		FieldV16MemberStates:     "Germany; Netherlands",
+		FieldV16ProductName:      "Example Gateway",
+		FieldV16ProductVersion:   "4.0 to 4.2.1",
 	}
-	siCore := Values{
-		FieldSeverity:           "Loss of confidentiality and integrity of product data",
-		FieldProduct:            "Example Gateway 3.1.2",
-		FieldIncidentNature:     "Unauthorised access to the management interface",
-		FieldImpact:             "Administrative credentials exposed on 41 installed units",
-		FieldIncidentMitigation: "WAF rule deployed; firmware fix pending",
-		FieldRootCause:          "Missing authorisation check introduced in 3.1.0",
+	aevEW := withFields(commonEW,
+		FieldV16NotificationType, "Vulnerability",
+		FieldV16CVEID, "CVE-2026-31337",
+		FieldV16AEVAwareness, "2026-09-20 08:45 UTC",
+	)
+	aev72 := Values{
+		FieldV16GeneralInfo:  "Authentication bypass in the management interface allows a remote actor with network access to execute privileged actions.",
+		FieldV16AttackVector: "Remote network access through an exposed API.",
+		FieldV16MeasureDate:  "2026-09-22 14:00 UTC",
 	}
-	aevFinal := withFields(aevCore,
-		FieldOutcome, "3.1.4 deployed to all managed units; exploitation ceased 6 days after publication",
-		FieldClosure, "2026-10-12")
-	siFinal := withFields(siCore,
-		FieldOutcome, "3.1.5 shipped and rolled out to 41 units; credentials rotated",
-		FieldClosure, "2026-10-15")
+	aevFinal := Values{
+		FieldV16MeasuresTaken:    "Update 4.2.2 released; old releases withdrawn from the download portal.",
+		FieldV16MeasuresForUsers: "Install version 4.2.2. Until then, restrict management-interface access to trusted networks.",
+		FieldV16MeasureDate:      "2026-09-22 14:00 UTC",
+		FieldV16UpdateDetails:    "Security update 4.2.2 corrects the missing authorisation check.",
+		FieldV16SeverityDesc:     "Missing authorisation validation in endpoint X. Severity: High. Affected versions 4.0-4.2.1.",
+		FieldV16ImpactDesc:       "Remote unauthenticated compromise of product configuration data on affected units.",
+	}
+	siEW := withFields(commonEW,
+		FieldV16NotificationType, "Incident",
+		FieldV16IncidentSuspected, "Yes. Evidence indicates an intentional unauthorised modification of the update package.",
+		FieldV16IncidentAwareness, "2026-09-20 08:45 UTC",
+	)
+	si72 := Values{
+		FieldV16IncidentNature:     "Malicious code executed through the update service and affected the integrity of locally stored configuration data.",
+		FieldV16IncidentAssessment: "Confirmed impact is limited to configuration integrity on three product instances; broader exposure remains under investigation.",
+	}
+	siFinal := Values{
+		FieldV16MeasuresTaken:     "Update distribution suspended; signing keys rotated; affected units isolated.",
+		FieldV16MeasuresForUsers:  "Verify the signature of update packages; reinstall from the published checksum list.",
+		FieldV16IncidentMeasures:  "Containment applied and monitoring extended to all update endpoints.",
+		FieldV16IncidentSeverity:  "Low. Limited impact, no significant disruption to operation.",
+		FieldV16IncidentImpact:    "Minimal. No material impact on operations, users or data.",
+		FieldV16IncidentRootCause: "Supply-chain compromise through an unauthorised modification to the update package.",
+	}
 
 	fixtures := []struct {
 		name   string
@@ -300,11 +352,11 @@ func TestENISAConformanceFixtures(t *testing.T) {
 		stage  Stage
 		values Values
 	}{
-		{"AEV / early warning", EventClassAEV, StageEarlyWarning, aevCore},
-		{"AEV / 72h notification", EventClassAEV, StageNotification72h, aevCore},
+		{"AEV / early warning", EventClassAEV, StageEarlyWarning, aevEW},
+		{"AEV / 72h notification", EventClassAEV, StageNotification72h, aev72},
 		{"AEV / final report", EventClassAEV, StageFinalReport, aevFinal},
-		{"SI / early warning", EventClassSI, StageEarlyWarning, siCore},
-		{"SI / 72h notification", EventClassSI, StageNotification72h, siCore},
+		{"SI / early warning", EventClassSI, StageEarlyWarning, siEW},
+		{"SI / 72h notification", EventClassSI, StageNotification72h, si72},
 		{"SI / final report", EventClassSI, StageFinalReport, siFinal},
 	}
 	require.Len(t, fixtures, 6, "the conformance matrix is 2 event classes x 3 stages")
@@ -332,6 +384,13 @@ func TestEveryRequiredFieldIsRepresentableInternally(t *testing.T) {
 				assert.NotEmpty(t, f.Name, "%s is required at %s/%s but has no name", f.ID, class, stage)
 				assert.NotEmpty(t, f.Format, "%s is required at %s/%s but has no format", f.ID, class, stage)
 				assert.NotEmpty(t, f.SourceKey, "%s is not pinned to a source version", f.ID)
+				// A required field whose identifier this codebase invented is a field
+				// that cannot be checked against the published glossary, which is the
+				// defect the v1.6 transcription exists to remove.
+				assert.True(t, f.IdentifierSourced,
+					"%s is required at %s/%s but its identifier is not transcribed from the glossary", f.ID, class, stage)
+				assert.NotEmpty(t, f.IdentifierPosition,
+					"%s is marked sourced at %s/%s but carries no glossary position", f.ID, class, stage)
 			}
 		}
 	}
@@ -342,7 +401,7 @@ func TestMissingRequiredFieldIsReportedWithTheStageAndClass(t *testing.T) {
 	s, _ := sr.Current(RegimeCRAArticle14)
 
 	incomplete := Values{
-		FieldAttackVector: "network",
+		FieldV16Title: "Active exploitation affecting Example Gateway 4.2",
 	}
 	err := s.Validate(StageEarlyWarning, EventClassAEV, incomplete)
 	require.Error(t, err)
@@ -370,11 +429,13 @@ func TestMissingRequiredFieldIsReportedWithTheStageAndClass(t *testing.T) {
 	// The CVE identifier is NOT among the missing-required fields: an
 	// organisation frequently learns of an active exploitation before any CVE
 	// exists, and refusing the report for that reason would be the worst
-	// possible failure. Evidence of exploitation is still required, so the
-	// report is not left unsupported.
-	assert.False(t, missing[FieldCVEID],
-		"a CVE identifier must not be required at early warning; see the corpus note")
-	assert.True(t, missing[FieldExploitation])
+	// possible failure.
+	assert.False(t, missing[FieldV16CVEID],
+		"a CVE identifier must not be required at early warning; the glossary has it optional")
+	// The awareness timestamp IS required: it is the anchor every Article 14
+	// deadline is computed from, and v1.6 makes it mandatory at early warning.
+	assert.True(t, missing[FieldV16AEVAwareness],
+		"the awareness timestamp is mandatory at early warning and its absence must be reported")
 	assert.Greater(t, len(ce.Issues()), 1, "every problem is reported, not just the first")
 }
 
@@ -385,10 +446,14 @@ func TestEarlyWarningWithoutACVEStillValidates(t *testing.T) {
 	s, _ := sr.Current(RegimeCRAArticle14)
 
 	values := Values{
-		FieldSeverity:     "Remote compromise",
-		FieldAttackVector: "network",
-		FieldProduct:      "Example Gateway 3.x",
-		FieldExploitation: "Observed inbound exploitation in the wild",
+		FieldV16NotificationType: "Vulnerability",
+		FieldV16Title:            "Active exploitation affecting Example Gateway 4.2",
+		FieldV16Summary:          "Actively exploited authentication bypass; workaround published.",
+		FieldV16ManufacturerName: "Example Manufacturing GmbH",
+		FieldV16MemberStates:     "Germany",
+		FieldV16ProductName:      "Example Gateway",
+		FieldV16ProductVersion:   "4.0 to 4.2.1",
+		FieldV16AEVAwareness:     "2026-09-20 08:45 UTC",
 	}
 	err := s.Validate(StageEarlyWarning, EventClassAEV, values)
 	require.NoError(t, err,
@@ -402,35 +467,41 @@ func TestCVEIDRemainsApplicableAndOptional(t *testing.T) {
 	_, sr := corpus(t)
 	s, _ := sr.Current(RegimeCRAArticle14)
 
-	f, ok := s.Field(FieldCVEID)
-	require.True(t, ok, "the CVE identifier field must still exist")
+	f, ok := s.Field(FieldV16CVEID)
+	require.True(t, ok, "the CVE identifier field must still exist under its published position")
 	assert.Equal(t, RequirementOptional, f.RequirementAt(StageEarlyWarning, EventClassAEV))
-	assert.Contains(t, f.ApplicableTo, EventClassAEV,
-		"the field stays applicable to actively exploited vulnerabilities")
+	assert.Equal(t, EventClassAEV, f.ApplicableTo[0],
+		"the field applies to actively exploited vulnerabilities only; v1.6 lists it as AEV")
+	// v1.6 makes the identifier available at early warning only. A CVE on a
+	// 72-hour notification is not merely unnecessary, it is not applicable, and
+	// the validator reports it rather than silently carrying it forward.
+	assert.Equal(t, RequirementNotApplicable, f.RequirementAt(StageNotification72h, EventClassAEV))
+	assert.False(t, f.AppliesTo(EventClassSI),
+		"v1.6 lists the CVE identifier as AEV-only; a severe incident has no CVE field")
 
 	// Still reportable when supplied.
 	values := Values{
-		FieldCVEID:        "CVE-2026-31337",
-		FieldSeverity:     "Remote compromise",
-		FieldAttackVector: "network",
-		FieldProduct:      "Example Gateway 3.x",
-		FieldExploitation: "Observed inbound exploitation in the wild",
+		FieldV16NotificationType: "Vulnerability",
+		FieldV16Title:            "Active exploitation affecting Example Gateway 4.2",
+		FieldV16Summary:          "Actively exploited authentication bypass.",
+		FieldV16ManufacturerName: "Example Manufacturing GmbH",
+		FieldV16MemberStates:     "Germany",
+		FieldV16ProductName:      "Example Gateway",
+		FieldV16ProductVersion:   "4.0 to 4.2.1",
+		FieldV16AEVAwareness:     "2026-09-20 08:45 UTC",
+		FieldV16CVEID:            "CVE-2026-31337",
 	}
 	require.NoError(t, s.Validate(StageEarlyWarning, EventClassAEV, values))
 
-	// KNOWN GAP, recorded rather than papered over: Validate checks presence of
-	// required fields and nothing else. It never consults ReportingField.Format,
-	// so a malformed value is accepted for ANY field, required or optional.
-	// That predates this change and is not a consequence of relaxing the
-	// requirement — it is asserted here only so the limitation is visible
-	// instead of discovered during a live filing.
-	bad := Values{}
-	for k, v := range values {
-		bad[k] = v
-	}
-	bad[FieldCVEID] = "not-a-cve"
-	require.NoError(t, s.Validate(StageEarlyWarning, EventClassAEV, bad),
-		"documents the pre-existing absence of value-format validation")
+	// The value IS format-checked: an identifier field rejects a malformed
+	// value, so a typo is caught before a human files the report rather than by
+	// the platform afterwards. (An earlier version of this test asserted the
+	// opposite and passed only because "not-a-cve" happens to satisfy the bare
+	// alphanumeric alternative of the identifier pattern — the assertion was
+	// checking the wrong thing.)
+	bad := withFields(values, FieldV16CVEID, "CVE-2026-31337!")
+	require.Error(t, s.Validate(StageEarlyWarning, EventClassAEV, bad),
+		"a malformed identifier must be rejected")
 }
 
 func TestAFieldFromTheOtherEventClassIsNotApplicable(t *testing.T) {
@@ -440,11 +511,7 @@ func TestAFieldFromTheOtherEventClassIsNotApplicable(t *testing.T) {
 	// A CVE identifier is an AEV concept; supplying one on a severe incident
 	// report is reported rather than silently accepted.
 	err := s.Validate(StageEarlyWarning, EventClassSI, Values{
-		FieldSeverity:       "Loss of confidentiality",
-		FieldProduct:        "Example Gateway 3.1.2",
-		FieldIncidentNature: "Unauthorised management access",
-		FieldImpact:         "Credentials exposed",
-		FieldCVEID:          "CVE-2026-31337",
+		FieldV16CVEID: "CVE-2026-31337",
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not apply")
@@ -455,10 +522,8 @@ func TestEnforcedEnumValuesAreChecked(t *testing.T) {
 	s, _ := sr.Current(RegimeCRAArticle14)
 
 	values := Values{
-		FieldCVEID: "CVE-2026-31337", FieldExploitation: "observed",
-		FieldSeverity: "remote compromise", FieldProduct: "Gateway 3.x",
+		FieldV16NotificationType: "Exploit",
 	}
-	values[FieldAttackVector] = "carrier_pigeon"
 	err := s.Validate(StageEarlyWarning, EventClassAEV, values)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "is not one of")
@@ -467,8 +532,7 @@ func TestEnforcedEnumValuesAreChecked(t *testing.T) {
 func TestDateFormatIsChecked(t *testing.T) {
 	_, sr := corpus(t)
 	s, _ := sr.Current(RegimeCRAArticle14)
-	values := Values{FieldCVEID: "CVE-2026-31337", FieldSeverity: "x", FieldAttackVector: "network", FieldProduct: "y", FieldExploitation: "z"}
-	values[FieldEUVDID] = "not an identifier!"
+	values := Values{FieldV16AEVAwareness: "some time on Tuesday"}
 	err := s.Validate(StageEarlyWarning, EventClassAEV, values)
 	require.Error(t, err, "an identifier field is format-checked")
 }
@@ -486,24 +550,32 @@ func TestSchemasAreImmutableAndVersionHistoryIsRetained(t *testing.T) {
 	s, _ := sr.Current(RegimeCRAArticle14)
 
 	conflict := ReportingField{
-		ID: FieldCVEID, Name: "Something else", Format: FormatText,
+		ID: FieldV16CVEID, Name: "Something else", Format: FormatText,
 		ApplicableTo: []EventClass{EventClassAEV}, SourceKey: s.SourceKey,
 	}
 	require.Error(t, s.AddField(conflict), "a published field definition cannot be redefined")
 
-	// A future glossary version registers alongside rather than replacing.
-	v14, err := BuildSRPGlossarySchema(s.SourceKey, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC))
+	// A future glossary version registers alongside rather than replacing. Its
+	// date must be later than every registered version, otherwise the assertion
+	// below would be about the registry's existing contents rather than about
+	// the one it just added.
+	future, err := BuildSRPGlossarySchema(s.SourceKey, time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC))
 	require.NoError(t, err)
-	v14.ID = "ENISA-SRP-1.4"
-	require.NoError(t, sr.Register(v14))
+	future.ID = "ENISA-SRP-1.7"
+	require.NoError(t, sr.Register(future))
 
 	old, err := sr.SchemaAt(RegimeCRAArticle14, time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC))
 	require.NoError(t, err)
-	assert.Equal(t, "ENISA-SRP-1.3", old.ID, "a package validated in March stays explainable")
+	assert.Equal(t, SchemaIDSRPGlossaryV1, old.ID, "a package validated under V1 stays explainable")
 
-	current, err := sr.SchemaAt(RegimeCRAArticle14, time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC))
+	mid, err := sr.SchemaAt(RegimeCRAArticle14, time.Date(2026, 10, 25, 0, 0, 0, 0, time.UTC))
 	require.NoError(t, err)
-	assert.Equal(t, "ENISA-SRP-1.4", current.ID)
+	assert.Equal(t, SchemaIDSRPGlossaryV16, mid.ID,
+		"between the v1.6 publication and the next version, v1.6 is what was in force")
+
+	current, err := sr.SchemaAt(RegimeCRAArticle14, time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC))
+	require.NoError(t, err)
+	assert.Equal(t, "ENISA-SRP-1.7", current.ID)
 }
 
 func TestAFieldDeclaringARequirementForAnInapplicableClassIsRejected(t *testing.T) {

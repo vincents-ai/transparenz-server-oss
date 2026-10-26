@@ -108,11 +108,13 @@ func TestRetainedArtifactIsReproducible(t *testing.T) {
 	}
 }
 
-// Built-in registry entries are label-derived, and must say so rather than
-// presenting a label hash as provenance. They are not "wrong" for it — the
-// source is real and the version is right — but the hash does not evidence which
-// wording was read, and a consumer must be able to filter on that.
-func TestBuiltinRegistrySourcesAreMarkedLabelDerived(t *testing.T) {
+// Every built-in source must declare which kind of provenance it has, and the
+// declaration must be true. A label-derived entry is not "wrong" — the source is
+// real and the version is right — but its hash cannot evidence which wording was
+// read, and a consumer must be able to filter on that. A retained entry claims
+// more, so it is held to a higher standard: its hash must reproduce from bytes
+// that ship with the binary.
+func TestBuiltinSourcesDeclareTheirProvenanceHonestly(t *testing.T) {
 	reg, _, err := BuildDefaultRegistry(time.Now().UTC())
 	require.NoError(t, err)
 	sources := reg.Sources()
@@ -120,22 +122,65 @@ func TestBuiltinRegistrySourcesAreMarkedLabelDerived(t *testing.T) {
 		t.Fatal("registry returned no sources")
 	}
 
-	var unverifiable []string
+	var retained, labelDerived int
 	for _, s := range sources {
-		if s.IsVerifiable() {
-			t.Errorf("source %q is marked verifiable but no artifact is retained for a "+
-				"built-in entry; claiming verifiability without retained bytes is the "+
-				"defect this work removes", s.Document)
+		switch s.ArtifactDerived {
+		case ArtifactRetained:
+			retained++
+			// A retained claim is only worth anything if the hash is
+			// reproducible, so the check is not "did it say retained" but
+			// "does the recorded hash match a recomputation from the bytes".
+			if !s.IsVerifiable() {
+				t.Errorf("source %q is marked retained but its hash is not a content hash", s.Document)
+			}
+			if !s.VerifyHash(srpGlossaryV16Retained) && s.Version == srpGlossaryV16Version {
+				t.Errorf("source %q %s is marked retained but its hash does not reproduce "+
+					"from the retained bytes; the hash and the text have drifted apart",
+					s.Document, s.Version)
+			}
+		case ArtifactLabelDerived:
+			labelDerived++
+			if s.IsVerifiable() {
+				t.Errorf("source %q is marked verifiable but its hash is derived from the "+
+					"document label, so it does not evidence which text was reviewed", s.Document)
+			}
+		default:
+			t.Errorf("source %q has ArtifactDerived=%q, which is neither retained nor "+
+				"label-derived", s.Document, s.ArtifactDerived)
 		}
-		if s.ArtifactDerived != ArtifactLabelDerived {
-			t.Errorf("source %q has ArtifactDerived=%q; built-in entries are label-derived "+
-				"and must say so", s.Document, s.ArtifactDerived)
-		}
-		unverifiable = append(unverifiable, s.Document)
 	}
-	if len(unverifiable) == 0 {
-		t.Error("expected the built-in sources to be reported as unverified")
+
+	if retained == 0 {
+		t.Error("no built-in source is verifiable; the v1.6 glossary is retained and must be")
 	}
+	if labelDerived == 0 {
+		t.Error("the label-derived sources must still be reported as such rather than " +
+			"disappearing when one verifiable source was added")
+	}
+}
+
+// The retained glossary is what the v1.6 schema cites, so the two must agree on
+// the version and the bytes. A schema whose source hash cannot be reproduced from
+// the artifact in the repository has no provenance at all.
+func TestV16SchemaSourceIsTheRetainedArtifact(t *testing.T) {
+	reg, sr, err := BuildDefaultRegistry(time.Now().UTC())
+	require.NoError(t, err)
+
+	schema, ok := sr.Schema(SchemaIDSRPGlossaryV16)
+	require.True(t, ok, "the v1.6 schema must be registered")
+
+	src, ok := reg.Source(AuthorityENISAOperationalGuidance, DocSRPGlossary, srpGlossaryV16Version)
+	require.True(t, ok, "the v1.6 glossary must be registered as a source")
+	require.Equal(t, src.Key(), schema.SourceKey,
+		"the schema must cite exactly the source that is registered")
+	require.True(t, src.IsVerifiable(), "the v1.6 source carries retained bytes, so it must be verifiable")
+	require.True(t, src.VerifyHash(srpGlossaryV16Retained),
+		"the registered hash must reproduce from the embedded glossary text")
+
+	artifact := SRPGlossaryV16Artifact()
+	require.True(t, artifact.Verify(), "the retained artifact must verify against its own hash")
+	require.Equal(t, artifact.ContentHash, src.SourceHash)
+	require.Equal(t, srpGlossaryV16Version, artifact.Version)
 }
 
 // A consumer that must not rely on unverified provenance needs to be able to say
