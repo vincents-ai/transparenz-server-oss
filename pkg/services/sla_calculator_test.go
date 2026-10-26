@@ -94,20 +94,22 @@ func TestApplySlaAutomation_FullyAutomatic_FlipsOnlyOnSuccess(t *testing.T) {
 		calc.applySlaAutomation(context.Background(), sla, SlaAutomationFullyAutomatic)
 
 		fake := calc.enisaService.(*fakeAutoSubmitter)
-		// The goroutine flips the status asynchronously; poll until Submit was
-		// called AND the status has landed.
+
+		// Wait for the submission first, without touching the database. The
+		// previous version read from SQLite on every poll tick, and SQLite allows
+		// one writer: the reads starved the UPDATE the test was waiting for, so it
+		// timed out under package-wide load while passing in isolation. Waiting on
+		// the fake costs no database work at all, and only then is the row read.
 		require.Eventually(t, func() bool {
-			if cve, _ := fake.Called(); cve != sla.Cve {
-				return false
-			}
+			cve, _ := fake.Called()
+			return cve == sla.Cve
+		}, 10*time.Second, 5*time.Millisecond, "the submission must have been attempted")
+
+		require.Eventually(t, func() bool {
 			var got models.SlaTracking
 			require.NoError(t, db.First(&got, "id = ?", sla.ID).Error)
 			return got.Status == "auto_submitted"
-			// Poll slowly. The wait condition reads on every tick, and SQLite
-			// allows a single writer: a tight 10ms read loop starves the
-			// goroutine's UPDATE we are waiting for, which is why this test was
-			// flaky under package-wide load and not in isolation.
-		}, 10*time.Second, 100*time.Millisecond, "SLA must flip to auto_submitted after successful submission")
+		}, 10*time.Second, 250*time.Millisecond, "SLA must flip to auto_submitted after successful submission")
 	})
 
 	t.Run("failure leaves SLA status unchanged (no false compliant)", func(t *testing.T) {

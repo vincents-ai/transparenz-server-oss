@@ -1,6 +1,8 @@
 package testutil
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -12,8 +14,21 @@ import (
 // attached and all required tables created with SQLite-compatible DDL.
 func SetupTestDB(t *testing.T, tables ...string) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	// Shared-cache in-memory, pinned to ONE connection.
+	//
+	// A bare ":memory:" gives every pooled connection its own empty database, and
+	// ATTACH is per-connection too — so any code under test that ran on a
+	// background goroutine could be handed a fresh connection with no schema and
+	// no tables. That produced an intermittent, load-dependent failure in the SLA
+	// automation test: the submission goroutine's UPDATE went nowhere and the test
+	// timed out, roughly half the time, while passing in isolation. One shared
+	// connection makes the goroutine and the test see the same database.
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.Exec("ATTACH DATABASE ':memory:' AS compliance").Error)
 
 	allDDL := map[string]string{
