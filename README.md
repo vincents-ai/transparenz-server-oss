@@ -133,6 +133,14 @@ means:
 - a new repository method that omits `TenantScope` leaks data silently, and
 - anyone with database credentials sees every tenant.
 
+What guards against the first is a matrix test rather than a promise:
+`pkg/repository/tenant_isolation_matrix_test.go` seeds a row for one tenant and
+then reads and lists it as another, for every scoped repository, and asserts that
+a context with no organisation sees nothing at all. Removing `TenantScope` from a
+single method makes it fail with "tenant B's sbom uploads appeared in tenant A's
+list". Adding a repository means adding a case; forgetting to is the remaining gap,
+and it is a smaller one than a method nobody checked.
+
 If you need isolation that survives an application bug, use schema-per-organisation
 below, or one database per tenant.
 
